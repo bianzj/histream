@@ -40,43 +40,6 @@ layout(local_size_x = GROUP_SIZEX) in;
 #define NUM_VNIR 2001 
 #define NUM_BAND 2002
 
-float GammaR[DIFFUSE_ANGLE_NUM * DIFFUSE_ANGLE_NUM];
-float GammaT[DIFFUSE_ANGLE_NUM * DIFFUSE_ANGLE_NUM];
-// from solar direction to selected direction;
-float GammaSR[DIFFUSE_ANGLE_NUM];
-float GammaST[DIFFUSE_ANGLE_NUM];
-
-
-// diffuse directions
-void scattering_phase_function_diffuse()
-{
-  for(int iangle = 0;iangle < DIFFUSE_ANGLE_NUM; iangle++)
-  {
-    vec3 directioni = normalize(DIFFUSE_DIRECTIONS[iangle]);
-    for(int jangle = 0;jangle < DIFFUSE_ANGLE_NUM; jangle++)
-    {
-      vec3 directionj = normalize(DIFFUSE_DIRECTIONS[jangle]);
-      vec2 Gamma = scattering_phase_function_direct_XZY_paper(directioni,-directionj);
-      GammaR[iangle*DIFFUSE_ANGLE_NUM + jangle] = Gamma.x;
-      GammaT[iangle*DIFFUSE_ANGLE_NUM + jangle] = Gamma.y;
-    }
-  }
-}
-
-// diffuse directions
-void scattering_phase_function_solar_diffuse()
-{
-  vec3 directioni = normalize(lightSet.direction);
-  for(int jangle = 0;jangle < DIFFUSE_ANGLE_NUM; jangle++)
-  {
-      vec3 directionj = normalize(DIFFUSE_DIRECTIONS[jangle]);
-      vec2 Gamma = scattering_phase_function_direct_XZY_paper(directioni,-directionj);
-      GammaSR[jangle] = Gamma.x;
-      GammaST[jangle] = Gamma.y;
-  }
-}
-
-
 bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVDBLink,
  int kiter,int kband,float Esun,float Esky)
 {
@@ -198,6 +161,7 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
       {
         // a valid voxel and get voxel information 
         // such as instanceId, typeId, spectralId, thermalId, canopyId
+          instanceId = voxelLinks[bufferId].instanceId;
           InstanceLink instanceLink = instanceLinks[instanceId];
           meshId = instanceLink.meshId;
           MeshLink meshLink = meshLinks[meshId];
@@ -223,8 +187,7 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
             alpha_toSolar = voxelDirs[bufferId].solar;
 
           // get the phase function for solar direction to induced direction 
-          gammart.x = GammaSR[iangle];
-          gammart.y = GammaST[iangle];
+          gammart = scattering_phase_function_direct_XZY_paper(directions, -directioni);
           sunlitTemperature = voxelTempes[bufferId].sunlit;
           shadedTemperature = voxelTempes[bufferId].shaded;
           /////////////////////////////////////////////////////
@@ -251,8 +214,8 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
                {
                    float radiancej = voxelRads[bufferId0*DIFFUSE_ANGLE_NUM+jangle].cumulated;
                    directionj0 = (DIFFUSE_DIRECTIONS[jangle]);
-                   gammart.x = GammaR[iangle*DIFFUSE_ANGLE_NUM+jangle];
-                   gammart.y = GammaT[iangle*DIFFUSE_ANGLE_NUM+jangle];
+                   directionj = normalize(directionj0);
+                   gammart = scattering_phase_function_direct_XZY_paper(directioni, -directionj);
                    gamma =   abs(gammart.x)*(refl + trans)+ abs(gammart.y)*trans;
                    gamma = clamp(gamma,0,1);
                    radiance= radiance + radiancej * gamma* alpha_toVoxel*(1-alpha_voxel);
@@ -426,10 +389,6 @@ void main()
     //------------------------------------------------------------
     // An iteration process for diffuse scattering function
     //------------------------------------------------------------
-    // pre-calcuation Gamma 
-    scattering_phase_function_diffuse();
-    scattering_phase_function_solar_diffuse(); 
-    
     voxelNetRads[bufferId0].diffuseTrad = 0 ;
 
     int kband_start = 0, kband_end = 0;

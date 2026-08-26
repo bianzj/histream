@@ -64,15 +64,16 @@ void Engine::input(std::string path, std::string V){
     
 }
 
-void Engine::create() {
+bool Engine::create() {
 
     if(m_mode == Mode::eRaytracing) {
-        m_pRaytracing->create(m_pRaytracingio);
+        return m_pRaytracing->create(m_pRaytracingio);
     }else if(m_mode == Mode::eVoxelEB){
-        m_pVoxeleb->create(m_pVoxelebio);
+        return m_pVoxeleb->create(m_pVoxelebio);
     }else if(m_mode == Mode::eVoxelRT){
-        m_pVoxelrt->create(m_pVoxelrtio);
+        return m_pVoxelrt->create(m_pVoxelrtio);
     }
+    return false;
 }
 
 void Engine::run() {

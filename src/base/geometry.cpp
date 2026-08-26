@@ -695,9 +695,11 @@ bool Geometry::createGeometry(std::shared_ptr<FileIO> &fileio, std::shared_ptr<V
 //    else {
 //        modelio->sensor = createSensor(modelio->voxelSize_XZY, modelio->voxelOrigin_XZY, vza, vaa, 1.0);
 //    }
-//    modelio->light = createLight(sza, saa, fileio->m_pVoxelrtXml->lightxml.direct, fileio->m_pVoxelrtXml->lightxml.diffuse,
-//                                 fileio->m_pVoxelrtXml->lightxml.solarTemperature,
-//                                 fileio->m_pVoxelrtXml->lightxml.skyTemperature);
+    modelio->sensor = createSensor(modelio->voxelSize_XZY, modelio->voxelOrigin_XZY, vza, vaa, 1.0f);
+    modelio->light = createLight(sza, saa, fileio->m_pVoxelrtXml->lightxml.direct,
+                                 fileio->m_pVoxelrtXml->lightxml.diffuse,
+                                 fileio->m_pVoxelrtXml->lightxml.solarTemperature,
+                                 fileio->m_pVoxelrtXml->lightxml.skyTemperature);
 
 
 

@@ -15,14 +15,18 @@
 using namespace std;
 
 bool FileIO::readXml(std::string Path, Mode mode) {
-
-
-    m_mode = Mode::eVoxelEB;
-    m_pVoxelebXml = std::move(xmlexamples.m_pVoxelebXml);
-    return false;
-
-
     m_mode = mode;
+    if (Path.empty()) {
+        if (m_mode == Mode::eRaytracing) {
+            m_pRaytracingXml = xmlexamples.m_pRaytracingXml;
+        } else if (m_mode == Mode::eVoxelRT) {
+            m_pVoxelrtXml = xmlexamples.m_pVoxelrtXml;
+        } else {
+            m_pVoxelebXml = xmlexamples.m_pVoxelebXml;
+        }
+        return true;
+    }
+
     // std::string filePath = Path;
     TiXmlDocument mydoc(Path.c_str()); // tinyxml.h
     bool isloadOk = mydoc.LoadFile();
@@ -93,7 +97,7 @@ AeroCondXml FileIO::readAeroXML(TiXmlNode *node, Mode mode) {
 //    };
 //    aeroCondXml = {AeroType::ONE,
 //                   {1, 10, 10, 3, 12.}, "", 1000};
-    for (TiXmlElement *AeroNode0 = AeroNode->FirstChildElement(); AeroNode0 != NULL; AeroNode0 = AeroNode->NextSiblingElement()) {
+    for (TiXmlElement *AeroNode0 = AeroNode->FirstChildElement(); AeroNode0 != NULL; AeroNode0 = AeroNode0->NextSiblingElement()) {
 
         aeroCondXml = {AeroType::ONE,
                        {stoi(AeroNode0->FirstChildElement("type")->GetText()),
@@ -1435,6 +1439,5 @@ void FileIO::writeENVIdata(std::string projectDir, float *pData, int width, int 
 
 
 }
-
 
 

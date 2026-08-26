@@ -22,7 +22,7 @@ public:
 
     void input(std::string path, std::string V);
     void init(Mode mode);
-    void create();
+    bool create();
     void run();
     void destroy();
 

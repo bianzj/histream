@@ -143,7 +143,9 @@ bool Voxeleb::create(std::shared_ptr<VoxelebIO> &modelio) {
 
     m_pBuffer->createBuffer(modelio);
     m_pDescriptor->createDescriptor(modelio);
-    m_pPipeline->createPipeline(modelio);
+    if (!m_pPipeline->createPipeline(modelio)) {
+        return false;
+    }
     m_pCommand->create(modelio);
     updateSetting(modelio);
     return true;
@@ -236,174 +238,146 @@ bool Voxeleb::destroy(std::shared_ptr<VoxelebIO> & modelio){
 
 
 void Voxeleb::output(std::shared_ptr<VoxelebIO> &modelio, std::shared_ptr<FileIO> &fileio, int knode, int kangle) {
-
-
     VkBufferUsageFlags usage{VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-    int width = modelio->imageSize.x;
-    int height = modelio->imageSize.y;
-    int n_wave = modelio->n_wave;
-    VkDeviceSize bufferSize = width * height *n_wave* sizeof(float);
-    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(bufferSize, usage,
-                                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-    m_pVirtual->bufferToBuffer(modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
-
-    // write the buffer to disk
-    void *data = modelio->m_pAlloc->map(pixelBuffer);
-    float *pData = reinterpret_cast<float *>(data);
-
-    float test0 = pData[0];
-//     float test6 = pData[10000];
-//     float test10 = pData[250000];
-    //std::cout << "value: " << test0 << std::endl;
-
-    modelio->m_pAlloc->unmap(pixelBuffer);
-    modelio->m_pAlloc->destroy(pixelBuffer);
-
-    Angle angle = modelio->angles[kangle];
-    std::vector<float> waves = modelio->waves;
-    glm::vec2 resolution = modelio->imageSize;
-
-
-
-    Eigen::VectorXd cx;
-    Eigen::VectorXd cy;
-    m_pGeometry->orthcorrect(modelio,angle.vza,angle.vaa,cy,cx);
-
-
-    float *pData_orth = new float[width*height*n_wave];
-    std::memset(pData_orth,0,width*height*n_wave*sizeof(float));
-    for(int i=0;i<width;i++)
-    {
-        for(int j=0;j<height;j++)
-        {
-            int old = j*width+i;
-            int ii,jj;
-            ii = int(i*cx[0]+j*cx[1]+i*j*cx[2]+cx[3]);
-            jj = int(i*cy[0]+j*cy[1]+i*j*cy[2]+cy[3]);
-            int orth = ii*height + jj;
-
-            if (orth <0) continue;
-            if(orth > height*width) continue;
-            for(int k=0;k<n_wave;k++)
-            {
-                int oldd = k*width*height + old;
-
-                int orthh =  k*width*height + orth;
-                if (pData[orthh]==0) continue;
-                pData_orth[oldd] = pData[orthh];
-            }
-        }
-    }
-
-
-
-    float t = modelio->meteo.t;
-    fileio->writeENVIdata(modelio->projectDir, pData_orth, width, height, n_wave, angle, t,-1);
-
-    // fileio
-
-
-    //m_pFileOutput->writeTif(, pData, angles, waves, resolution);
-}
-
-void Voxeleb::outputTxt(std::shared_ptr<VoxelebIO>& modelio, std::shared_ptr<FileIO>& fileio, int kangle)
-{
-    VkBufferUsageFlags usage{VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-    int width = modelio->imageSize.x;
-    int height = modelio->imageSize.y;
-    int n_wave = modelio->n_wave;
-    VkDeviceSize bufferSize = width * height *n_wave* sizeof(float);
-    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(bufferSize, usage,
-                                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-
-    m_pVirtual->bufferToBuffer(modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
-
-    // write the buffer to disk
-    void *data = modelio->m_pAlloc->map(pixelBuffer);
-    float *pData = reinterpret_cast<float *>(data);
-
-
-
-    Angle angle = modelio->angles[kangle];
-    std::vector<float> waves = modelio->waves;
-    glm::vec2 resolution = modelio->imageSize;
-
-    Eigen::VectorXd cx;
-    Eigen::VectorXd cy;
-    m_pGeometry->orthcorrect(modelio,angle.vza,angle.vaa,cy,cx);
-
-
-    float *pData_orth = new float[width*height*n_wave];
-    std::memset(pData_orth,0,width*height*n_wave*sizeof(float));
-    for(int i=0;i<width;i++)
-    {
-        for(int j=0;j<height;j++)
-        {
-            int old = j*width+i;
-            int ii,jj;
-            ii = int(i*cx[0]+j*cx[1]+i*j*cx[2]+cx[3]);
-            jj = int(i*cy[0]+j*cy[1]+i*j*cy[2]+cy[3]);
-            int orth = ii*height + jj;
-
-            if (orth <0) continue;
-            if(orth > height*width) continue;
-            for(int k=0;k<n_wave;k++)
-            {
-                int oldd = k*width*height + old;
-
-                int orthh =  k*width*height + orth;
-                if (pData[orthh]==0) continue;
-                pData_orth[oldd] = pData[orthh];
-            }
-        }
-    }
-
-    float t = modelio->meteo.t;
-
-    fileio->outImage.clear();
-    // float *walker = pData_orth;
-    for (int kband = 0; kband < n_wave; kband++) {
-        std::vector<float> outImage1;
-        outImage1.assign(pData_orth, pData_orth + width * height);
-        pData_orth += width * height;
-        fileio->outImage.push_back(outImage1);
-
-        float sum = 0.0f;
-        int count = 0;
-        for (int i = 0; i < width * height; i++) {
-            if (outImage1[i] > 0.0f) {
-                sum += outImage1[i];
-                count++;
-            }
-        }
-        float mean = sum / count;
-
-        fileio->outImageMeanValue.push_back(mean);
-    }
-
-    modelio->m_pAlloc->unmap(pixelBuffer);
-    modelio->m_pAlloc->destroy(pixelBuffer);
-
-    // 1. 打开文件（追加模式：std::ios::app）
-    std::ofstream outfile(modelio->projectDir + "\\result_statistics.txt", std::ios::app);  // 如果文件不存在会自动创建
-
-    // 2. 检查文件是否成功打开
-    if (!outfile.is_open()) {
-        std::cerr << "Error: Could not open file " << modelio->projectDir + "\\result_statistics.txt" << std::endl;
+    const int width = modelio->imageSize.x;
+    const int height = modelio->imageSize.y;
+    const int nWave = modelio->n_wave;
+    if (width <= 0 || height <= 0 || nWave <= 0
+        || kangle < 0 || static_cast<size_t>(kangle) >= modelio->angles.size()) {
         return;
     }
 
-    // 3. 写入数据（每行一个数）
-    for (int num=0; num < n_wave; num++) {
-        outfile << t << " " << angle.sza << " " << angle.saa << " " <<  angle.vza << " " << angle.vaa << " " << waves[num] << " " << fileio->outImageMeanValue[fileio->outImageMeanValue.size() - n_wave + num] << "\n";  // 换行分隔
+    const size_t imageElements = static_cast<size_t>(width) * height;
+    const size_t totalElements = imageElements * nWave;
+    const VkDeviceSize bufferSize = totalElements * sizeof(float);
+    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(
+        bufferSize, usage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    m_pVirtual->bufferToBuffer(
+        modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
+
+    void* mappedData = modelio->m_pAlloc->map(pixelBuffer);
+    std::vector<float> sourceData(totalElements);
+    std::memcpy(sourceData.data(), mappedData, static_cast<size_t>(bufferSize));
+    modelio->m_pAlloc->unmap(pixelBuffer);
+    modelio->m_pAlloc->destroy(pixelBuffer);
+
+    Angle angle = modelio->angles[kangle];
+    Eigen::VectorXd cx;
+    Eigen::VectorXd cy;
+    m_pGeometry->orthcorrect(modelio, angle.vza, angle.vaa, cx, cy);
+
+    std::vector<float> orthData(totalElements, 0.0f);
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < height; ++j) {
+            const int ii = static_cast<int>(i * cx[0] + j * cx[1] + i * j * cx[2] + cx[3]);
+            const int jj = static_cast<int>(i * cy[0] + j * cy[1] + i * j * cy[2] + cy[3]);
+            if (ii < 0 || ii >= width || jj < 0 || jj >= height) {
+                continue;
+            }
+
+            const size_t destination = static_cast<size_t>(j) * width + i;
+            const size_t source = static_cast<size_t>(jj) * width + ii;
+            for (int band = 0; band < nWave; ++band) {
+                const size_t bandOffset = static_cast<size_t>(band) * imageElements;
+                const float value = sourceData[bandOffset + source];
+                if (value != 0.0f) {
+                    orthData[bandOffset + destination] = value;
+                }
+            }
+        }
     }
 
-    // 4. 关闭文件（析构函数会自动调用，但显式关闭更安全）
-    outfile.close();
-
+    const float time = modelio->meteo.t;
+    fileio->writeENVIdata(
+        modelio->projectDir, orthData.data(), width, height, nWave, angle, time, -1);
 }
+void Voxeleb::outputTxt(std::shared_ptr<VoxelebIO>& modelio, std::shared_ptr<FileIO>& fileio, int kangle)
+{
+    VkBufferUsageFlags usage{VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
+    const int width = modelio->imageSize.x;
+    const int height = modelio->imageSize.y;
+    const int nWave = modelio->n_wave;
+    if (width <= 0 || height <= 0 || nWave <= 0
+        || kangle < 0 || static_cast<size_t>(kangle) >= modelio->angles.size()) {
+        return;
+    }
 
+    const size_t imageElements = static_cast<size_t>(width) * height;
+    const size_t totalElements = imageElements * nWave;
+    const VkDeviceSize bufferSize = totalElements * sizeof(float);
+    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(
+        bufferSize, usage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    m_pVirtual->bufferToBuffer(
+        modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
+
+    void* mappedData = modelio->m_pAlloc->map(pixelBuffer);
+    std::vector<float> sourceData(totalElements);
+    std::memcpy(sourceData.data(), mappedData, static_cast<size_t>(bufferSize));
+    modelio->m_pAlloc->unmap(pixelBuffer);
+    modelio->m_pAlloc->destroy(pixelBuffer);
+
+    Angle angle = modelio->angles[kangle];
+    Eigen::VectorXd cx;
+    Eigen::VectorXd cy;
+    m_pGeometry->orthcorrect(modelio, angle.vza, angle.vaa, cx, cy);
+
+    std::vector<float> orthData(totalElements, 0.0f);
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < height; ++j) {
+            const int ii = static_cast<int>(i * cx[0] + j * cx[1] + i * j * cx[2] + cx[3]);
+            const int jj = static_cast<int>(i * cy[0] + j * cy[1] + i * j * cy[2] + cy[3]);
+            if (ii < 0 || ii >= width || jj < 0 || jj >= height) {
+                continue;
+            }
+
+            const size_t destination = static_cast<size_t>(j) * width + i;
+            const size_t source = static_cast<size_t>(jj) * width + ii;
+            for (int band = 0; band < nWave; ++band) {
+                const size_t bandOffset = static_cast<size_t>(band) * imageElements;
+                const float value = sourceData[bandOffset + source];
+                if (value != 0.0f) {
+                    orthData[bandOffset + destination] = value;
+                }
+            }
+        }
+    }
+
+    const float time = modelio->meteo.t;
+    fileio->outImage.clear();
+    for (int band = 0; band < nWave; ++band) {
+        const float* bandBegin = orthData.data() + static_cast<size_t>(band) * imageElements;
+        std::vector<float> outImage(bandBegin, bandBegin + imageElements);
+        fileio->outImage.push_back(outImage);
+
+        double sum = 0.0;
+        size_t count = 0;
+        for (float value : outImage) {
+            if (value > 0.0f) {
+                sum += value;
+                ++count;
+            }
+        }
+        fileio->outImageMeanValue.push_back(
+            count == 0 ? 0.0f : static_cast<float>(sum / count));
+    }
+
+    std::ofstream outfile(modelio->projectDir + "\\result_statistics.txt", std::ios::app);
+    if (!outfile.is_open()) {
+        std::cerr << "Error: Could not open file "
+                  << modelio->projectDir + "\\result_statistics.txt" << std::endl;
+        return;
+    }
+
+    for (int band = 0; band < nWave; ++band) {
+        outfile << time << " " << angle.sza << " " << angle.saa << " "
+                << angle.vza << " " << angle.vaa << " " << modelio->waves[band] << " "
+                << fileio->outImageMeanValue[
+                       fileio->outImageMeanValue.size() - nWave + band]
+                << "\n";
+    }
+}
 void Voxeleb::outputVoxel(std::shared_ptr<VoxelebIO> &modelio, std::shared_ptr<FileIO> &fileio) {
 
 
@@ -464,4 +438,3 @@ bool Voxeleb::uploadAero(std::shared_ptr<FileIO> &fileio, std::shared_ptr<Voxele
 
 
 }
-

@@ -57,7 +57,14 @@ bool Pipeline::createPipeline(std::shared_ptr<VoxelrtIO> &modelio)
         computePipelineCreateInfo.stage =
                 nvvk::createShaderStageInfo(m_device, nvh::loadFile(VoxelrtPaths[stage], true), VK_SHADER_STAGE_COMPUTE_BIT);
 
-        vkCreateComputePipelines(m_device, {}, 1, &computePipelineCreateInfo, nullptr, &m_pipelines[stage]);
+        const VkResult result = vkCreateComputePipelines(
+            m_device, {}, 1, &computePipelineCreateInfo, nullptr, &m_pipelines[stage]);
+        if (result != VK_SUCCESS) {
+            LOGE("Failed to create VoxelRT compute pipeline (%d) for %s\n",
+                 static_cast<int>(result), VoxelrtPaths[stage].c_str());
+            vkDestroyShaderModule(m_device, computePipelineCreateInfo.stage.module, nullptr);
+            return false;
+        }
 
         m_debug.setObjectName(m_pipelines[stage], "VoxelRT");
         vkDestroyShaderModule(m_device, computePipelineCreateInfo.stage.module, nullptr);

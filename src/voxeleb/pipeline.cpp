@@ -74,7 +74,14 @@ bool Pipeline::createPipeline(std::shared_ptr<VoxelebIO> &modelio)
         computePipelineCreateInfo.stage =
                 nvvk::createShaderStageInfo(m_device, nvh::loadFile(VoxellstPaths[stage], true), VK_SHADER_STAGE_COMPUTE_BIT);
 
-        vkCreateComputePipelines(m_device, {}, 1, &computePipelineCreateInfo, nullptr, &m_pipelines[stage]);
+        const VkResult result = vkCreateComputePipelines(
+            m_device, {}, 1, &computePipelineCreateInfo, nullptr, &m_pipelines[stage]);
+        if (result != VK_SUCCESS) {
+            LOGE("Failed to create VoxelEB compute pipeline (%d) for %s\n",
+                 static_cast<int>(result), VoxellstPaths[stage].c_str());
+            vkDestroyShaderModule(m_device, computePipelineCreateInfo.stage.module, nullptr);
+            return false;
+        }
 
         m_debug.setObjectName(m_pipelines[stage], "VoxelEB");
         vkDestroyShaderModule(m_device, computePipelineCreateInfo.stage.module, nullptr);

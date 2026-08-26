@@ -389,7 +389,7 @@ void Raytracing::outputAlbedo(std::shared_ptr<RaytracingIO>& modelio, std::share
                 count++;
             }
         }
-        float mean = sum / count;
+        float mean = count == 0 ? 0.0f : sum / count;
 
         fileio->outImageMeanValue.push_back(mean);
     }

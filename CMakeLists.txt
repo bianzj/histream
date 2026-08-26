@@ -23,6 +23,7 @@ add_executable(${PROJNAME}
 if (MSVC)
     add_definitions(/wd26812)  # 'enum class' over 'enum'
     add_definitions(/wd26451)  # Arithmetic overflow, casting 4 byte value to 8 byte value
+    target_compile_options(${PROJNAME} PRIVATE /utf-8)
 endif ()
 
 # find_package(LibLZMA REQUIRED)
@@ -59,6 +60,20 @@ endif ()
 _add_package_VulkanSDK()
 _add_package_ImGUI()
 #_add_package_FreeImage()
+
+# nvpro_core ships the Windows NVML SDK supplement, but its FindNVML module
+# only searches CUDA Toolkit directories for the import library.
+if (WIN32)
+    set(NVML_BUNDLED_DIR "${BASE_DIRECTORY}/nvpro_core/third_party/binaries/nvml")
+    if (EXISTS "${NVML_BUNDLED_DIR}/nvml.h"
+            AND EXISTS "${NVML_BUNDLED_DIR}/lib/x64/nvml.lib")
+        set(NVML_LOCATION "${NVML_BUNDLED_DIR}" CACHE PATH
+                "Directory containing the bundled NVML headers")
+        set(NVML_LIBRARIES "${NVML_BUNDLED_DIR}/lib/x64/nvml.lib" CACHE FILEPATH
+                "Bundled NVML import library" FORCE)
+    endif ()
+endif ()
+
 # Add the following for GPU load and memory
 _add_package_NVML()
 # This should be added after all packages

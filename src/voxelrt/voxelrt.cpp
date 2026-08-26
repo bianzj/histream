@@ -122,7 +122,9 @@ bool Voxelrt::create(std::shared_ptr<VoxelrtIO> &modelio) {
 
     m_pBuffer->createBuffer(modelio);
     m_pDescriptor->createDescriptor(modelio);
-    m_pPipeline->createPipeline(modelio);
+    if (!m_pPipeline->createPipeline(modelio)) {
+        return false;
+    }
     m_pCommand->create(modelio);
     updateSetting(modelio);
     return true;
@@ -194,126 +196,88 @@ bool Voxelrt::destroy(std::shared_ptr<VoxelrtIO> & modelio){
 
 
 void Voxelrt::output(std::shared_ptr<VoxelrtIO> &modelio, std::shared_ptr<FileIO> &fileio, int knode, int kangle) {
-
-
     VkBufferUsageFlags usage{VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-    int width = modelio->imageSize.x;
-    int height = modelio->imageSize.y;
-    int n_wave = modelio->n_wave;
-    VkDeviceSize bufferSize = width * height *n_wave* sizeof(float);
-    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(bufferSize, usage,
-                                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    const int width = modelio->imageSize.x;
+    const int height = modelio->imageSize.y;
+    const int nWave = modelio->n_wave;
+    if (width <= 0 || height <= 0 || nWave <= 0
+        || kangle < 0 || static_cast<size_t>(kangle) >= modelio->angles.size()) {
+        return;
+    }
 
-    m_pVirtual->bufferToBuffer(modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
+    const size_t imageElements = static_cast<size_t>(width) * height;
+    const size_t totalElements = imageElements * nWave;
+    const VkDeviceSize bufferSize = totalElements * sizeof(float);
+    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(
+        bufferSize, usage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
-    // write the buffer to disk
-    void *data = modelio->m_pAlloc->map(pixelBuffer);
-    float *pData = reinterpret_cast<float *>(data);
+    m_pVirtual->bufferToBuffer(
+        modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
 
-    float test0 = pData[0];
-//     float test6 = pData[10000];
-//     float test10 = pData[250000];
-    //std::cout << "value: " << test0 << std::endl;
-
+    void* mappedData = modelio->m_pAlloc->map(pixelBuffer);
+    std::vector<float> sourceData(totalElements);
+    std::memcpy(sourceData.data(), mappedData, static_cast<size_t>(bufferSize));
     modelio->m_pAlloc->unmap(pixelBuffer);
     modelio->m_pAlloc->destroy(pixelBuffer);
 
     Angle angle = modelio->angles[kangle];
-    std::vector<float> waves = modelio->waves;
-    glm::vec2 resolution = modelio->imageSize;
-
-
-
     Eigen::VectorXd cx;
     Eigen::VectorXd cy;
-    m_pGeometry->orthcorrect(modelio,angle.vza,angle.vaa,cy,cx);
+    m_pGeometry->orthcorrect(modelio, angle.vza, angle.vaa, cx, cy);
 
+    std::vector<float> orthData(totalElements, 0.0f);
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < height; ++j) {
+            const int ii = static_cast<int>(i * cx[0] + j * cx[1] + i * j * cx[2] + cx[3]);
+            const int jj = static_cast<int>(i * cy[0] + j * cy[1] + i * j * cy[2] + cy[3]);
+            if (ii < 0 || ii >= width || jj < 0 || jj >= height) {
+                continue;
+            }
 
-    float *pData_orth = new float[width*height*n_wave];
-    std::memset(pData_orth,0,width*height*n_wave*sizeof(float));
-    for(int i=0;i<width;i++)
-    {
-        for(int j=0;j<height;j++)
-        {
-            int old = j*width+i;
-            int ii,jj;
-            ii = int(i*cx[0]+j*cx[1]+i*j*cx[2]+cx[3]);
-            jj = int(i*cy[0]+j*cy[1]+i*j*cy[2]+cy[3]);
-            int orth = ii*height + jj;
-
-            if (orth <0) continue;
-            if(orth > height*width) continue;
-            for(int k=0;k<n_wave;k++)
-            {
-                int oldd = k*width*height + old;
-
-                int orthh =  k*width*height + orth;
-                if (pData[orthh]==0) continue;
-                pData_orth[oldd] = pData[orthh];
+            const size_t destination = static_cast<size_t>(j) * width + i;
+            const size_t source = static_cast<size_t>(jj) * width + ii;
+            for (int band = 0; band < nWave; ++band) {
+                const size_t bandOffset = static_cast<size_t>(band) * imageElements;
+                const float value = sourceData[bandOffset + source];
+                if (value != 0.0f) {
+                    orthData[bandOffset + destination] = value;
+                }
             }
         }
     }
 
-
-    float t=-1;
-    if(knode == -1){
-        t = -1;
-    }else {
-        t = modelio->meteo.t;
-    }
-    fileio->writeENVIdata(modelio->projectDir, pData_orth, width, height, n_wave, angle, t,-1);
-
-    // fileio
-
-
-    //m_pFileOutput->writeTif(, pData, angles, waves, resolution);
+    const float time = knode == -1 ? -1.0f : modelio->meteo.t;
+    fileio->writeENVIdata(
+        modelio->projectDir, orthData.data(), width, height, nWave, angle, time, -1);
 }
 
 void Voxelrt::outputPos(std::shared_ptr<VoxelrtIO> &modelio, std::shared_ptr<FileIO> &fileio, int knode, int kpos) {
-
-
     VkBufferUsageFlags usage{VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT};
-    int width = modelio->imageSize.x;
-    int height = modelio->imageSize.y;
-    int n_wave = modelio->n_wave;
-    VkDeviceSize bufferSize = width * height *n_wave* sizeof(float);
-    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(bufferSize, usage,
-                                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    const int width = modelio->imageSize.x;
+    const int height = modelio->imageSize.y;
+    const int nWave = modelio->n_wave;
+    if (width <= 0 || height <= 0 || nWave <= 0 || modelio->angles.empty()) {
+        return;
+    }
 
-    m_pVirtual->bufferToBuffer(modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
+    const size_t totalElements = static_cast<size_t>(width) * height * nWave;
+    const VkDeviceSize bufferSize = totalElements * sizeof(float);
+    nvvk::Buffer pixelBuffer = modelio->m_pAlloc->createBuffer(
+        bufferSize, usage, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
 
-    // write the buffer to disk
-    void *data = modelio->m_pAlloc->map(pixelBuffer);
-    float *pData = reinterpret_cast<float *>(data);
+    m_pVirtual->bufferToBuffer(
+        modelio, *(modelio->m_virtualio->m_pBufferStorage), bufferSize, pixelBuffer);
 
-    float test0 = pData[0];
-//     float test6 = pData[10000];
-//     float test10 = pData[250000];
-    //std::cout << "value: " << test0 << std::endl;
-
+    void* mappedData = modelio->m_pAlloc->map(pixelBuffer);
+    std::vector<float> outputData(totalElements);
+    std::memcpy(outputData.data(), mappedData, static_cast<size_t>(bufferSize));
     modelio->m_pAlloc->unmap(pixelBuffer);
     modelio->m_pAlloc->destroy(pixelBuffer);
 
     Angle angle = modelio->angles[0];
-    std::vector<float> waves = modelio->waves;
-    glm::vec2 resolution = modelio->imageSize;
-
-
-
-
-
-    float t=-1;
-    if(knode == -1){
-        t = -1;
-    }else {
-        t = modelio->meteo.t;
-    }
-    fileio->writeENVIdata(modelio->projectDir, pData, width, height, n_wave, angle, t,kpos);
-
-    // fileio
-
-
-    //m_pFileOutput->writeTif(, pData, angles, waves, resolution);
+    const float time = knode == -1 ? -1.0f : modelio->meteo.t;
+    fileio->writeENVIdata(
+        modelio->projectDir, outputData.data(), width, height, nWave, angle, time, kpos);
 }
 
 
@@ -377,4 +341,3 @@ void Voxelrt::outputVoxel(std::shared_ptr<VoxelrtIO> &modelio, std::shared_ptr<F
 //
 //
 //}
-

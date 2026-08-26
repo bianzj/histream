@@ -2,6 +2,7 @@
 
 #pragma once
 #include <iostream>
+#include <string>
 
 
 #include <vulkan/vulkan.hpp>
@@ -35,11 +36,22 @@ int main(int argc, char **argv) {
     // std::string path= "D://data//hyperSpectral//test_1202";
     // std::string filePath;
 
+    std::string mode = argc > 1 ? argv[1] : "eVoxelEB";
+    std::string inputPath = argc > 2 ? argv[2] : "";
+    if (mode != "eVoxelEB" && mode != "eVoxelRT" && mode != "eRaytracing") {
+        std::cerr << "Usage: histream [eVoxelEB|eVoxelRT|eRaytracing] [Input.xml]\n";
+        return 2;
+    }
+
     Engine engine;
-    engine.input("","eVoxelEB");
-    engine.create();
+    engine.input(inputPath, mode);
+    if (!engine.create()) {
+        std::cerr << "Failed to create engine resources for " << mode << '\n';
+        engine.destroy();
+        return 3;
+    }
     engine.run();
     engine.destroy();
 
-    return 1;
+    return 0;
 }
