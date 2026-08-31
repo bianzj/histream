@@ -8,6 +8,17 @@
 
 void Engine::init(Mode mode)
 {
+    if (mode == Mode::eFacetRT) {
+        m_pFacetrt = std::make_shared<Facetrt>();
+        m_pFacetrtio = std::make_shared<FacetrtIO>();
+        return;
+    }
+    if (mode == Mode::eFacetEB) {
+        m_pFaceteb = std::make_shared<Faceteb>();
+        m_pFacetebio = std::make_shared<FacetebIO>();
+        return;
+    }
+
     appSetting.init();
 
     if(mode == Mode::eRaytracing) {
@@ -23,22 +34,38 @@ void Engine::init(Mode mode)
 }
 
 
-void Engine::input(std::string path, std::string V){
+void Engine::input(std::string path, std::string V, std::string outputPath){
 
-    if (V == "eRaytracing")
-    {
+    if (V == "eRaytracing") {
         m_mode = Mode::eRaytracing;
-    }
-    else if (V == "eVoxelEB")
-    {
+    } else if (V == "eVoxelEB") {
         m_mode = Mode::eVoxelEB;
-    }
-    else if(V == "eVoxelRT"){
+    } else if (V == "eVoxelRT") {
         m_mode = Mode::eVoxelRT;
+    } else if (V == "eFacetRT") {
+        m_mode = Mode::eFacetRT;
+    } else if (V == "eFacetEB") {
+        m_mode = Mode::eFacetEB;
+    }
+
+    m_inputPath = std::move(path);
+    m_outputPath = std::move(outputPath);
+    if (m_mode == Mode::eFacetRT || m_mode == Mode::eFacetEB) {
+        init(m_mode);
+        if (m_mode == Mode::eFacetRT) {
+            m_pFacetrtio->inputPath = m_inputPath;
+            m_pFacetrtio->shaderDirectory = facetShaderDirectory("facetrt");
+            m_pFacetrtio->outputPath = m_outputPath;
+        } else {
+            m_pFacetebio->inputPath = m_inputPath;
+            m_pFacetebio->shaderDirectory = facetShaderDirectory("faceteb");
+            m_pFacetebio->outputPath = m_outputPath;
+        }
+        return;
     }
 
     m_pFileio = std::make_shared<FileIO>();
-    m_pFileio->readXml(path, m_mode);
+    m_pFileio->readXml(m_inputPath, m_mode);
     init(m_mode);
 
     if(m_mode == Mode::eRaytracing) {
@@ -66,6 +93,16 @@ void Engine::input(std::string path, std::string V){
 
 bool Engine::create() {
 
+    if (m_mode == Mode::eFacetRT) {
+        if (!m_pFacetrt || !m_pFacetrt->setup(m_pFacetrtio)) return false;
+        if (!m_pFacetrt->upload(m_pFacetrtio)) return false;
+        return m_pFacetrt->create(m_pFacetrtio);
+    }
+    if (m_mode == Mode::eFacetEB) {
+        if (!m_pFaceteb || !m_pFaceteb->setup(m_pFacetebio)) return false;
+        if (!m_pFaceteb->upload(m_pFacetebio)) return false;
+        return m_pFaceteb->create(m_pFacetebio);
+    }
     if(m_mode == Mode::eRaytracing) {
         return m_pRaytracing->create(m_pRaytracingio);
     }else if(m_mode == Mode::eVoxelEB){
@@ -76,20 +113,55 @@ bool Engine::create() {
     return false;
 }
 
-void Engine::run() {
+std::string Engine::facetShaderDirectory(const char* name) const
+{
+    const std::filesystem::path local = std::filesystem::current_path() / "shader" / name;
+    if (std::filesystem::exists(local)) {
+        return local.string();
+    }
+#ifdef HISTREAM_FACETRT_SHADER_DIR
+    if (std::string(name) == "facetrt") {
+        return HISTREAM_FACETRT_SHADER_DIR;
+    }
+#endif
+#ifdef HISTREAM_FACETEB_SHADER_DIR
+    if (std::string(name) == "faceteb") {
+        return HISTREAM_FACETEB_SHADER_DIR;
+    }
+#endif
+    return local.string();
+}
+
+int Engine::run() {
+
+    if (m_mode == Mode::eFacetRT) {
+        return m_pFacetrt && m_pFacetrt->run(m_pFacetrtio) ? 0 : 1;
+    }
+    if (m_mode == Mode::eFacetEB) {
+        return m_pFaceteb && m_pFaceteb->run(m_pFacetebio) ? 0 : 1;
+    }
 
     if(m_mode == Mode::eRaytracing)
-        m_pRaytracing->run(m_pRaytracingio,m_pFileio);
+        return m_pRaytracing && m_pRaytracing->run(m_pRaytracingio,m_pFileio) ? 0 : 1;
     else if(m_mode == Mode::eVoxelEB)
-        m_pVoxeleb->run(m_pVoxelebio,m_pFileio);
+        return m_pVoxeleb && m_pVoxeleb->run(m_pVoxelebio,m_pFileio) ? 0 : 1;
     else if(m_mode == Mode::eVoxelRT)
-        m_pVoxelrt->run(m_pVoxelrtio,m_pFileio);
+        return m_pVoxelrt && m_pVoxelrt->run(m_pVoxelrtio,m_pFileio) ? 0 : 1;
+    return 1;
 
 }
 
 
 void Engine::destroy() {
 
+    if (m_mode == Mode::eFacetRT) {
+        if (m_pFacetrt) m_pFacetrt->destroy(m_pFacetrtio);
+        return;
+    }
+    if (m_mode == Mode::eFacetEB) {
+        if (m_pFaceteb) m_pFaceteb->destroy(m_pFacetebio);
+        return;
+    }
     if(m_mode == Mode::eRaytracing)
         m_pRaytracing->destroy(m_pRaytracingio);
     else if(m_mode == Mode::eVoxelEB)

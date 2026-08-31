@@ -125,8 +125,15 @@ void main()
         H = (RHOA * CP) / raa * (Tc-273.15 - Ta);
         LE = RHOA / (raa + rss) * lambda * (qi - qa);
 
-        // 含水量少则没有潜热通量（通过水分相态变化影响的部分）
-        if (soilSets[bioId].SMC < 0.03)
+        if (typeId == TYPE_WATER)
+        {
+            LE *= clamp(waterSets[bioId].evaporationCoefficient, 0.0, 1.0);
+        }
+        else if (typeId == TYPE_BUILDING)
+        {
+            LE = 0;
+        }
+        else if (typeId == TYPE_SOIL && soilSets[bioId].SMC < 0.03)
         {
             LE = 0;
         }
@@ -142,9 +149,19 @@ void main()
         float Gst = 0;
         float ssum = 0;
         float GAM = 0;
-        if(typeId == TYPE_SOIL || typeId == TYPE_BUILDING)
+        if(typeId == TYPE_WATER)
         {
-            if(typeId == TYPE_BUILDING) LE = 0;
+            // Qw = volumetric heat capacity * mixed-layer depth * dT / dt.
+            float previousTemperature = issunlit == 1
+                ? voxelTlasts[TlastId].sunlit
+                : voxelTlasts[TlastId].shaded;
+            float capacity = waterSets[bioId].heatCapacity
+                             * max(waterSets[bioId].mixingDepth, 0.01);
+            Gst = capacity * ((Tc - 273.15) - previousTemperature)
+                  / max(dtime, 1.0);
+        }
+        else if(typeId == TYPE_SOIL || typeId == TYPE_BUILDING)
+        {
             if(soilSets[bioId].method == 0)
             {
                 Gst = GST;

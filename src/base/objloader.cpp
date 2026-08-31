@@ -160,11 +160,24 @@ void ObjLoader::loadMesh(const std::string& filename, const std::string& meshnam
     }
 
     const tinyobj::attrib_t& attrib = reader.GetAttrib();
+    const auto& shapes = reader.GetShapes();
+    const tinyobj::shape_t* selectedShape = nullptr;
+    for (const auto& shape : shapes) {
+        if (shape.name == meshname) {
+            selectedShape = &shape;
+            break;
+        }
+    }
+    if (!selectedShape && !shapes.empty()) {
+        selectedShape = &shapes.front();
+        std::cerr << "Mesh ' " << meshname << "' not found in " << filename
+                  << ", using ' " << selectedShape->name << "'\n";
+    }
 
-    for (const auto& shape : reader.GetShapes())
+    for (const auto& shape : shapes)
     {
-
-        if(shape.name != meshname) continue;
+        if (&shape != selectedShape) continue;
+        if (shape.mesh.indices.empty()) continue;
         ShapeInfo     shapeInfo = {};
         shapeInfo.offset = m_indices.size();
         shapeInfo.nbFacet = shape.mesh.num_face_vertices.size();

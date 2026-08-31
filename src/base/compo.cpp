@@ -303,7 +303,14 @@ bool Compo::createCompProperty(std::shared_ptr<FileIO> &fileio, std::shared_ptr<
         id++;
     }
 
-    int id1 = 0,id2 = 0;
+    // The VoxelEB descriptor layout is fixed, so water-only scenes still need
+    // valid placeholder buffers for resources unused by water shaders.
+    if (meshio->canopies.empty()) {
+        meshio->canopies.push_back(Canopy{});
+        meshio->canopyNames.insert({"__default_canopy", 0});
+    }
+
+    int id1 = 0,id2 = 0,id3 = 0;
     for(auto &propxml: fileio->m_pVoxelebXml->propxmls){
 
         if(propxml.type == Type::VEGETATION) {
@@ -316,6 +323,26 @@ bool Compo::createCompProperty(std::shared_ptr<FileIO> &fileio, std::shared_ptr<
             meshio->soilsetNames.insert({propxml.name, id2});
             id2++;
         }
+        else if(propxml.type == Type::WATER){
+            meshio->watersets.push_back(propxml.waterset);
+            meshio->watersetNames.insert({propxml.name, id3});
+            id3++;
+        }
+    }
+
+    if (meshio->leafbios.empty()) {
+        meshio->leafbios.push_back(LeafBio{});
+        meshio->leafbioNames.insert({"__default_leaf", 0});
+    }
+    if (meshio->soilsets.empty()) {
+        meshio->soilsets.push_back(SoilSet{});
+        meshio->soilsetNames.insert({"__default_soil", 0});
+    }
+
+    // Descriptor bindings are fixed; keep compatibility with scenes that have no water.
+    if (meshio->watersets.empty()) {
+        meshio->watersets.push_back(WaterSet{0.0f, 4.186e6f, 1.0f, 1.0f});
+        meshio->watersetNames.insert({"water", 0});
     }
 
     return false;

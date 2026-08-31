@@ -9,6 +9,11 @@ get_filename_component(PROJNAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 set(PROJNAME ${PROJNAME})
 project(${PROJNAME} LANGUAGES C CXX)
 message(STATUS "-------------------------------")
+
+option(HISTREAM_ENABLE_FACET "Build integrated FacetRT and FacetEB backends" ON)
+if (HISTREAM_ENABLE_FACET)
+    find_package(Vulkan REQUIRED)
+endif()
 message(STATUS "Processing Project ${PROJNAME}:")
 
 
@@ -123,6 +128,17 @@ file(GLOB HEADER_FILES
         src/voxelrt/*.h
 )
 
+if (HISTREAM_ENABLE_FACET)
+    file(GLOB FACET_SOURCE_FILES
+            src/facetrt/*.cpp
+            src/faceteb/*.cpp)
+    file(GLOB FACET_HEADER_FILES
+            src/facetrt/*.h
+            src/faceteb/*.h)
+    list(APPEND SOURCE_FILES ${FACET_SOURCE_FILES})
+    list(APPEND HEADER_FILES ${FACET_HEADER_FILES})
+endif()
+
 #--------------------------------------------------------------------------------------------------
 # GLSL to SPIR-V custom build
 #compile_glsl_directory(
@@ -140,6 +156,46 @@ target_sources(${PROJNAME} PUBLIC ${COMMON_SOURCE_FILES})
 target_sources(${PROJNAME} PUBLIC ${PACKAGE_SOURCE_FILES})
 target_sources(${PROJNAME} PUBLIC ${GLSL_SOURCES})
 target_sources(${PROJNAME} PUBLIC ${GLSL_HEADERS})
+
+if (HISTREAM_ENABLE_FACET)
+    target_link_libraries(${PROJNAME} Vulkan::Vulkan)
+
+    find_program(HISTREAM_GLSLC
+            NAMES glslc
+            HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/Bin32"
+            REQUIRED)
+
+    set(HISTREAM_FACET_SHADER_FILES
+            visibility.vert
+            visibility.frag
+            visibility_resolve.comp
+            direct_resolve.comp
+            radiosity.comp)
+    foreach (FACET_KIND IN ITEMS facetrt faceteb)
+        set(FACET_SHADER_SOURCE_DIR
+                "${CMAKE_CURRENT_SOURCE_DIR}/shader/${FACET_KIND}")
+        set(FACET_SHADER_BINARY_DIR
+                "${CMAKE_CURRENT_BINARY_DIR}/shader/${FACET_KIND}")
+        set(FACET_SHADER_OUTPUTS)
+        foreach (FACET_SHADER_FILE IN LISTS HISTREAM_FACET_SHADER_FILES)
+            set(FACET_SHADER_OUTPUT
+                    "${FACET_SHADER_BINARY_DIR}/${FACET_SHADER_FILE}.spv")
+            add_custom_command(
+                    OUTPUT "${FACET_SHADER_OUTPUT}"
+                    COMMAND "${CMAKE_COMMAND}" -E make_directory
+                            "${FACET_SHADER_BINARY_DIR}"
+                    COMMAND "${HISTREAM_GLSLC}" --target-env=vulkan1.2
+                            "${FACET_SHADER_SOURCE_DIR}/${FACET_SHADER_FILE}"
+                            -o "${FACET_SHADER_OUTPUT}"
+                    DEPENDS "${FACET_SHADER_SOURCE_DIR}/${FACET_SHADER_FILE}"
+                    VERBATIM)
+            list(APPEND FACET_SHADER_OUTPUTS "${FACET_SHADER_OUTPUT}")
+        endforeach()
+        add_custom_target(histream_${FACET_KIND}_shaders ALL
+                DEPENDS ${FACET_SHADER_OUTPUTS})
+        add_dependencies(${PROJNAME} histream_${FACET_KIND}_shaders)
+    endforeach()
+endif()
 
 
 #-------------------------------------------------------------------------------------------------
@@ -192,5 +248,25 @@ endforeach (RELEASELIB)
 #
 
 
-_finalize_target(${PROJNAME})
+# Deploy runtime resources next to histream.exe so XML-driven projects use the same
+# shader and predefined-data layout as the built-in configurations.
+add_custom_command(TARGET ${PROJNAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/shader"
+            "$<TARGET_FILE_DIR:${PROJNAME}>/shader"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/defined"
+            "$<TARGET_FILE_DIR:${PROJNAME}>/defined"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/shader/facetrt"
+            "$<TARGET_FILE_DIR:${PROJNAME}>/shader/facetrt"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/shader/faceteb"
+            "$<TARGET_FILE_DIR:${PROJNAME}>/shader/faceteb"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "$<IF:$<CONFIG:Debug>,${VCPKG_INSTALLED_DIR}/x64-windows/debug/bin,${VCPKG_INSTALLED_DIR}/x64-windows/bin>"
+            "$<TARGET_FILE_DIR:${PROJNAME}>"
+    COMMENT "Deploying HiStream shader and defined runtime resources"
+)
 
+_finalize_target(${PROJNAME})

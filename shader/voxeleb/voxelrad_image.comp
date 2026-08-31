@@ -26,6 +26,7 @@
 #include "../global.glsl"
 #include "../bsdf.glsl"
 #include "../functions.glsl"
+#include "../surface_brdf.glsl"
 #include "../nanovdb_info.glsl"
 #include "../shade_state_voxel.glsl"
 #include "../random.glsl"
@@ -250,6 +251,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
             canopyId = meshLinks[meshId].canopyId;
             spectralId = meshLinks[meshId].spectralId;
             thermalId = meshLinks[meshId].thermalId;
+            uint bioId = meshLinks[meshId].bioId;
             uint spectralBase = spectralId * NUM_BAND;
             float envTemp = Inv_Stefen_Boltzmann(voxelNetRads[alignBufferId].diffuseTrad, 1);
 
@@ -263,7 +265,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
             // // LST = voxelRsss[alignBufferId].shaded;
             // return true;
 
-            if((typeId == TYPE_BUILDING) || (typeId == TYPE_SOIL)){
+            if((typeId == TYPE_BUILDING) || (typeId == TYPE_SOIL) || (typeId == TYPE_WATER)){
 
 // if (vegNum==0) vegNum=1;
 // LST = vegTemperatureSum/vegNum;//voxelNetRads[bufferId].diffuseTrad;;
@@ -361,7 +363,10 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
                     LST += radianceDirect;
                 }
                 
-                LST += Planck(wavelength, envTemp)  * refl * alpha_toSensor;
+                float surfaceWeight = surfaceReflectanceWeight(
+                    typeId, bioId, refl, lightSet.direction,
+                    ray.direction, sstate.normal);
+                LST += Planck(wavelength, envTemp) * surfaceWeight * alpha_toSensor;
 
                
 				break;

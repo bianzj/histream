@@ -143,7 +143,9 @@ bool TraversalDirection(vec3 lightDirection)
             meshId = instanceLinks[instanceId].meshId;
             typeId = meshLinks[meshId].type;
 
-            if ((abs(float(typeId - TYPE_SOIL)) < 0.1) || (abs(float(typeId - TYPE_BUILDING)) < 0.1)){
+            if ((abs(float(typeId - TYPE_SOIL)) < 0.1)
+                || (abs(float(typeId - TYPE_BUILDING)) < 0.1)
+                || (abs(float(typeId - TYPE_WATER)) < 0.1)){
                 alpha_toSolar = 0.0;
                 break;
             }

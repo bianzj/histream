@@ -213,7 +213,7 @@ struct AeroCond
     float cover;
 };
 
-// Rn - H - LE - G = 0
+// Rn - H - LE - G = 0. For water, G stores mixed-layer heat storage Qw.
 struct VoxelHeatFlux
 {
     float Hsunlit;  // sensible heat flux of sunlit component
@@ -270,8 +270,24 @@ struct SoilSet
   //  float rbs;      // boundary prop
 
     float SatWater;
+    int brdfModel;
+    float hapkeB0;
+    float hapkeH;
+    float hapkeG;
 
     //BSMParam bsm;
+};
+
+struct WaterSet
+{
+    float rss;
+    float heatCapacity;
+    float mixingDepth;
+    float evaporationCoefficient;
+    int brdfModel;
+    float refractiveIndex;
+    float slopeVariance;
+    float diffuseFraction;
 };
 
 
@@ -294,4 +310,4 @@ struct Meteo
 
 
 
-#endif 
+#endif

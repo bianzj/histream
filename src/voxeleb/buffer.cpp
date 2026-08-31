@@ -63,6 +63,13 @@ bool Buffer::createBuffer(std::shared_ptr<VoxelebIO> &voxellstio){
     // tempe
     VkCommandBuffer cmdBufTempe = cmdGen.createCommandBuffer();
     std::vector<VoxelTempe> voxelTempes(n_voxel, VoxelTempe{305, 295});
+    for (int i = 0; i < n_voxel; ++i) {
+        const int instanceId = voxelio->voxellinks[i].instanceId;
+        const int meshId = instanceio->instanceLinks[instanceId].meshId;
+        if (meshio->meshLinks[meshId].type == static_cast<int>(Type::WATER)) {
+            voxelTempes[i] = VoxelTempe{298.15f, 298.15f};
+        }
+    }
     voxelio->m_pTempeBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufTempe, voxelTempes,
                                                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
@@ -252,6 +259,8 @@ bool Buffer::createBuffer(std::shared_ptr<VoxelebIO> &voxellstio){
     meshio->m_pLeafBioBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufBio, meshio->leafbios, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
     // soilSet
     meshio->m_pSoilSetBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufBio, meshio->soilsets, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
+    // waterSet
+    meshio->m_pWaterSetBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufBio, meshio->watersets, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT));
     // air
     std::vector<VoxelAir> voxelair(n_voxel, VoxelAir{voxellstio->meteos[0].Ca, voxellstio->meteos[0].Oa, voxellstio->meteos[0].ea});
     // voxelio->m_pAirBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufBio, voxelair,
@@ -277,6 +286,13 @@ bool Buffer::createBuffer(std::shared_ptr<VoxelebIO> &voxellstio){
                                                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
     // tLast
     std::vector<TLAST> tlast(n_voxel * TLASTNUM, TLAST{23, 23});
+    for (int i = 0; i < n_voxel; ++i) {
+        const float sunlit = voxelTempes[i].sunlit - 273.15f;
+        const float shaded = voxelTempes[i].shaded - 273.15f;
+        for (int k = 0; k < TLASTNUM; ++k) {
+            tlast[i * TLASTNUM + k] = TLAST{sunlit, shaded};
+        }
+    }
     voxelio->m_pTLASTBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufEvapo, tlast,
                                                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
@@ -393,6 +409,7 @@ void Buffer::destroy(std::shared_ptr<VoxelebIO> &voxellstio){
     m_pAlloc->destroy(*(voxelio->m_pRaaBuffer));
     m_pAlloc->destroy(*(meshio->m_pLeafBioBuffer));
     m_pAlloc->destroy(*(meshio->m_pSoilSetBuffer));
+    m_pAlloc->destroy(*(meshio->m_pWaterSetBuffer));
 
     m_pAlloc->destroy(*(voxelio->m_pRssBuffer));
     m_pAlloc->destroy(*(voxelio->m_pAirBuffer));

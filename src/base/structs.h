@@ -85,6 +85,8 @@ enum Mode {
     eRaytracing,
     eVoxelEB,
     eVoxelRT,
+    eFacetRT,
+    eFacetEB,
 };
 
 enum RaytracingStageIndices
@@ -109,6 +111,7 @@ enum class Type
     SOIL,
     VEGETATION,
     BUILDING,
+    WATER,
     OTHER
 };
 
@@ -219,8 +222,10 @@ struct SensorXml
     Projection projection;
     glm::vec2 resolution;			   // { WIDTH, HEIGHT }
     std::vector<glm::vec2> viewAngles; // { zenith, azimuth }
+    glm::vec3 position{0.0f, 0.0f, 3000.0f}; // world XYZ: east, north, height (m)
     std::vector<float> waves;
     bool isImage{true};
+    bool isProcess{false};
     bool isOrth{false};
     bool isAlbedo{false};
     bool isTemperature{true};
@@ -279,11 +284,13 @@ struct Background
     // scene information
     glm::vec3 sceneSize;       // default:  (100,10,100)
     glm::vec3 sceneOrigin;     // default : (0,0,0)
+    Type type{Type::SOIL};
 
 /*    glm::vec3 sMin{ -5,0,-5 };
     glm::vec3 sMax{ 5,5,5 };*/
     float stepsize_surface;
     float stepsize_height;
+    float voxelFillThreshold{0.05f};
     // for dem option
     bool isDEM{false};
     std::string DEMFile;
@@ -391,7 +398,9 @@ struct PrimEntity
     std::vector<float> scales{1};
     std::vector<float> rotations{0};
 
-
+    bool voxelizeFromObj{false};
+    std::string objFile;
+    float voxelFillThreshold{0.05f};
 };
 
 
@@ -484,6 +493,7 @@ struct PropertyXml{
     Type type;
     LeafBio leafbio;
     SoilSet soilset;
+    WaterSet waterset;
     BuildUp buildup;
 };
 

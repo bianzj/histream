@@ -309,7 +309,24 @@ struct SoilSet
     float Tsoil;        // aeverage temperature 25
     float smc;			// volumetric soil moisture content 0.25
     float SatWater;
+    int brdfModel{0};             // 0: Lambert, 1: Hapke
+    float hapkeB0{1.0f};          // opposition-effect amplitude
+    float hapkeH{0.1f};           // opposition-effect angular width
+    float hapkeG{0.0f};           // Henyey-Greenstein asymmetry
     //BSMParam bsm;
+};
+
+// Open-water energy balance parameters.
+struct WaterSet
+{
+    float rss;                    // surface resistance, normally 0 s/m
+    float heatCapacity;           // volumetric heat capacity, J/(m3 K)
+    float mixingDepth;            // effective mixed-layer depth, m
+    float evaporationCoefficient; // 0..1 multiplier for latent heat flux
+    int brdfModel{0};             // 0: Lambert, 1: Fresnel-Cox-Munk
+    float refractiveIndex{1.333f};
+    float slopeVariance{0.0f};     // <=0: derive from meteorological wind
+    float diffuseFraction{0.02f};  // residual subsurface/Lambert component
 };
 
 struct BuildUp

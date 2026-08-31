@@ -38,20 +38,22 @@ int main(int argc, char **argv) {
 
     std::string mode = argc > 1 ? argv[1] : "eVoxelEB";
     std::string inputPath = argc > 2 ? argv[2] : "";
-    if (mode != "eVoxelEB" && mode != "eVoxelRT" && mode != "eRaytracing") {
-        std::cerr << "Usage: histream [eVoxelEB|eVoxelRT|eRaytracing] [Input.xml]\n";
+    std::string outputPath = argc > 3 ? argv[3] : "";
+    if (mode != "eVoxelEB" && mode != "eFacetEB" && mode != "eFacetRT"
+        && mode != "eVoxelRT" && mode != "eRaytracing") {
+        std::cerr << "Usage: histream [eVoxelEB|eFacetEB|eFacetRT|eVoxelRT|eRaytracing] [Input.xml] [output.json]\n";
         return 2;
     }
 
     Engine engine;
-    engine.input(inputPath, mode);
+    engine.input(inputPath, mode, outputPath);
     if (!engine.create()) {
         std::cerr << "Failed to create engine resources for " << mode << '\n';
         engine.destroy();
         return 3;
     }
-    engine.run();
+    const int runCode = engine.run();
     engine.destroy();
 
-    return 0;
+    return runCode;
 }

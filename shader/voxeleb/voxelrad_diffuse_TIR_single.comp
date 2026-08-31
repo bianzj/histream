@@ -26,6 +26,7 @@
 #include "../global.glsl"
 #include "../settings.h"
 #include "../functions.glsl"
+#include "../surface_brdf.glsl"
 #include "../nanovdb_info.glsl"
 #include "../shade_state_voxel.glsl"
 
@@ -261,6 +262,7 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
           canopyId = meshLinks[meshId].canopyId;
           spectralId = meshLinks[meshId].spectralId;
           thermalId = meshLinks[meshId].thermalId;
+          uint bioId = meshLinks[meshId].bioId;
           uint spectralIdBase = spectralId*NBAND;
           alpha_toSolar = voxelDirs[alignBufferId].solar;
 
@@ -302,7 +304,9 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
           ///////////////////////////////
           if(inSameSides)
           {
-            radiance += (refl * Esun * alpha_toSolar * alpha_toVoxel);
+            float surfaceWeight = surfaceReflectanceWeight(
+                typeId, bioId, refl, wi, wo, ffnormal);
+            radiance += (surfaceWeight * Esun * alpha_toSolar * alpha_toVoxel);
           }
           // ////////////////////////////////
           // //emitter

@@ -25,11 +25,13 @@ public:
 //    std::shared_ptr<nvvk::Buffer> m_pCanopyBuffer;
     std::shared_ptr<nvvk::Buffer> m_pLeafBioBuffer; // Bio
     std::shared_ptr<nvvk::Buffer> m_pSoilSetBuffer;
+    std::shared_ptr<nvvk::Buffer> m_pWaterSetBuffer;
     std::shared_ptr<nvvk::Buffer> m_pBuildupBuffer;
 
     std::vector<Canopy> canopies;
     std::vector<LeafBio> leafbios;
     std::vector<SoilSet> soilsets;
+    std::vector<WaterSet> watersets;
     std::vector<BuildUp> buildups;
     std::vector<Spectral> spectrals;
     std::vector<Thermal> thermals;
@@ -51,6 +53,7 @@ public:
     std::map<std::string,int> canopyNames;
     std::map<std::string,int> leafbioNames;
     std::map<std::string,int> soilsetNames;
+    std::map<std::string,int> watersetNames;
     std::map<std::string,int> aeroNames;
 
 };

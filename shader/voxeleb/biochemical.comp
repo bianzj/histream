@@ -96,6 +96,12 @@ void main()
 		atomicStore(voxelRsss[bufferId0].shaded, rss, gl_ScopeDevice,gl_StorageSemanticsBuffer,gl_SemanticsRelaxed);
     
     }
+    else if(typeId == TYPE_WATER)
+    {
+        rss = max(waterSets[bioId].rss, 0.0);
+        atomicStore(voxelRsss[bufferId0].sunlit, rss, gl_ScopeDevice,gl_StorageSemanticsBuffer,gl_SemanticsRelaxed);
+        atomicStore(voxelRsss[bufferId0].shaded, rss, gl_ScopeDevice,gl_StorageSemanticsBuffer,gl_SemanticsRelaxed);
+    }
     
     
     else if(typeId == TYPE_VEGETATION)

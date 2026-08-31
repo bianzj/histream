@@ -330,7 +330,7 @@ void main()
             float y1 = z0m + d;
             float y2 = 0.01;
             if(typeId == TYPE_NULL) return;
-            if((typeId == TYPE_SOIL) || (typeId == TYPE_BUILDING))
+            if((typeId == TYPE_SOIL) || (typeId == TYPE_BUILDING) || (typeId == TYPE_WATER))
             {
                 // for soil under overstory vegetation 
                 y2 = 0.01;

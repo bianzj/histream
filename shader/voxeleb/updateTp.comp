@@ -58,7 +58,9 @@ void main()
 
     uint TlastId = bufferId * TLASTNUM;
  
-    bool type = (abs(typeId*1.0 - TYPE_SOIL*1.0) < 0.1) || (abs(typeId*1.0 - TYPE_BUILDING*1.0) < 0.1);
+    bool type = (abs(typeId*1.0 - TYPE_SOIL*1.0) < 0.1)
+                || (abs(typeId*1.0 - TYPE_BUILDING*1.0) < 0.1)
+                || (abs(typeId*1.0 - TYPE_WATER*1.0) < 0.1);
     if(type)
     {
         /// 对温度进行真实的赋值，使得其是缓慢变化的
@@ -78,6 +80,21 @@ void main()
                 shadedTemperature = shadedTemperature + (shadedTemperature - sunlitTemperature) * (voxelDirs[bufferId].solar - voxelDirs[bufferId].solar_last) / (1 - voxelDirs[bufferId].solar);
                 voxelTempes[bufferId].shaded = shadedTemperature;
             }
+        }
+
+        if(typeId == TYPE_WATER)
+        {
+            for(int i = TLASTNUM - 1; i > 0; i--)
+            {
+                voxelTlasts[TlastId+i] = voxelTlasts[TlastId+i-1];
+            }
+            float waterTemperature = 0.5 * (
+                voxelTempes[bufferId].sunlit + voxelTempes[bufferId].shaded);
+            voxelTempes[bufferId].sunlit = waterTemperature;
+            voxelTempes[bufferId].shaded = waterTemperature;
+            voxelTlasts[TlastId].sunlit = waterTemperature - 273.15;
+            voxelTlasts[TlastId].shaded = waterTemperature - 273.15;
+            return;
         }
 
         if(abs(soilSets[bioId].method-1)<0.1)

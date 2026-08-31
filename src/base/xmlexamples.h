@@ -23,6 +23,7 @@ public:
         createMinimalVoxelebxml();
         createMinimalVoxelrtxml();
         createMinimalRaytracingxml();
+        createMinimalWaterEBxml();
     }
 
     void createMinimalVoxelebxml()
@@ -90,6 +91,10 @@ public:
         soilProperty.type = Type::SOIL;
         soilProperty.soilset = SoilSet{1, 2000.0f, 1180.0f, 1800.0f,
                                        1.55f, 0.25f, 25.0f, 0.45f};
+        soilProperty.soilset.brdfModel = 1;
+        soilProperty.soilset.hapkeB0 = 1.0f;
+        soilProperty.soilset.hapkeH = 0.1f;
+        soilProperty.soilset.hapkeG = 0.0f;
 
         // The current descriptor layout always requires a non-empty leaf buffer.
         PropertyXml fallbackLeaf{};
@@ -107,8 +112,9 @@ public:
             1000.0f
         };
 
-        example.meteoxml.startTimeNode = 0;
-        example.meteoxml.endTimeNode = 1;
+        // Daytime node: exercises directional surface BRDF in the regression case.
+        example.meteoxml.startTimeNode = 24;
+        example.meteoxml.endTimeNode = 25;
         example.meteoxml.meteofile = example.definedDir + R"(\defined\meteo.txt)";
         example.atomcondxml.rlifile = example.definedDir + R"(\defined\Esky_.dat)";
         example.atomcondxml.rinfile = example.definedDir + R"(\defined\Esun_.dat)";
@@ -218,9 +224,46 @@ public:
         example.spectralxmls = {soil};
         example.thermalxmls = {{"soil_temperature", 305.0f, 295.0f}};
     }
+    void createMinimalWaterEBxml()
+    {
+        m_pWaterEBXml = std::make_shared<VoxelEBXml>(*m_pVoxelebXml);
+        auto& example = *m_pWaterEBXml;
+        example.projectDir = R"(C:\work\histream\examples\minimal_watereb)";
+        std::filesystem::create_directories(example.projectDir);
+
+        auto& background = example.scenexml.background;
+        background.type = Type::WATER;
+        background.bgSpectralName = "water";
+        background.bgThermalName = "water_temperature";
+        background.bgPropName = "water";
+
+        SpectralXml waterOptical{};
+        waterOptical.spectralName = "water";
+        waterOptical.type = spectralType::CUSTOM;
+        waterOptical.reflectances = {0.06f};
+        waterOptical.transmittance = {0.0f};
+        waterOptical.refl_tir = 0.02f;
+        waterOptical.tau_tir = 0.0f;
+        example.spectralxmls = {waterOptical};
+        example.thermalxmls = {{"water_temperature", 298.15f, 298.15f}};
+        example.canopyxmls.clear();
+        example.aerocondxml.aerocond.hc_veg = 0.0f;
+        example.aerocondxml.aerocond.lai = 0.0f;
+
+        PropertyXml water{};
+        water.name = "water";
+        water.type = Type::WATER;
+        water.waterset = WaterSet{0.0f, 4.186e6f, 0.5f, 1.0f};
+        water.waterset.brdfModel = 1;
+        water.waterset.refractiveIndex = 1.333f;
+        water.waterset.slopeVariance = 0.0f;
+        water.waterset.diffuseFraction = 0.02f;
+        example.propxmls = {water};
+    }
     std::shared_ptr<RaytracingXml> m_pRaytracingXml;
     std::shared_ptr<VoxelEBXml>   m_pVoxelebXml;
     std::shared_ptr<VoxelRTXml>   m_pVoxelrtXml;
+    std::shared_ptr<VoxelEBXml>   m_pWaterEBXml;
 
 
     void createRaytracingxml();

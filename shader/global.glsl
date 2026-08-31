@@ -18,6 +18,7 @@
 #define TYPE_SOIL 1
 #define TYPE_VEGETATION 2
 #define TYPE_BUILDING 3
+#define TYPE_WATER 4
 #define AEROTYPE_VEGETATION 0
 #define AEROTYPE_URBAN 1
 

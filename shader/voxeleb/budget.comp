@@ -92,7 +92,7 @@ void main()
         outSunlitRad = Stefen_Boltzmann(TsunlitOld,emis);
         netSunlitRad = inSunlitRad - outSunlitRad;
         netShadedRad = inShadedRad - outShadedRad;
-    }else if(typeId == TYPE_SOIL || typeId == TYPE_BUILDING)
+    }else if(typeId == TYPE_SOIL || typeId == TYPE_BUILDING || typeId == TYPE_WATER)
     {
         outShadedRad = Stefen_Boltzmann(TshadedOld,emis);
         outSunlitRad = Stefen_Boltzmann(TsunlitOld,emis);
@@ -102,10 +102,18 @@ void main()
 
     // soil heat storage 
     float Gsunlit,Gshaded;
-    if(abs(voxelHeatFlux[bufferId].Gsunlit - GST)<0.01) Gsunlit = netSunlitRad * GST;
-    else Gsunlit = voxelHeatFlux[bufferId].Gsunlit;
-    if(abs(voxelHeatFlux[bufferId].Gshaded - GST)<0.01) Gshaded = netShadedRad * GST;
-    else Gshaded = voxelHeatFlux[bufferId].Gshaded; 
+    if(typeId == TYPE_WATER)
+    {
+        Gsunlit = voxelHeatFlux[bufferId].Gsunlit;
+        Gshaded = voxelHeatFlux[bufferId].Gshaded;
+    }
+    else
+    {
+        if(abs(voxelHeatFlux[bufferId].Gsunlit - GST)<0.01) Gsunlit = netSunlitRad * GST;
+        else Gsunlit = voxelHeatFlux[bufferId].Gsunlit;
+        if(abs(voxelHeatFlux[bufferId].Gshaded - GST)<0.01) Gshaded = netShadedRad * GST;
+        else Gshaded = voxelHeatFlux[bufferId].Gshaded;
+    }
 
     //-------------------------------------------------------
     //  Update surface temperature : old
@@ -165,6 +173,28 @@ void main()
         diffShadedRad = netShadedRad - (voxelHeatFlux[bufferId].LEshaded + voxelHeatFlux[bufferId].Hshaded);
         Tsunlit = TsunlitOld + diffSunlitRad * wc / ((RHOA*CP)/raa + 4*SIGMASB*pow(TsunlitOld,3));
         Tshaded = TshadedOld + diffShadedRad * wc / ((RHOA*CP)/raa + 4*SIGMASB*pow(TshadedOld,3));
+    }else if(typeId == TYPE_WATER)
+    {
+        float sunlitFraction = clamp(voxelDirs[bufferId].solar, 0.0, 1.0);
+        float TwaterOld = mix(TshadedOld, TsunlitOld, sunlitFraction);
+        float netWaterRad = mix(netShadedRad, netSunlitRad, sunlitFraction);
+        float Hwater = mix(voxelHeatFlux[bufferId].Hshaded,
+                           voxelHeatFlux[bufferId].Hsunlit, sunlitFraction);
+        float LEwater = mix(voxelHeatFlux[bufferId].LEshaded,
+                            voxelHeatFlux[bufferId].LEsunlit, sunlitFraction);
+        float Qwater = mix(Gshaded, Gsunlit, sunlitFraction);
+        // Open-water balance: Rn = H + LE + Qw.
+        float waterResidual = netWaterRad - Hwater - LEwater - Qwater;
+        float storageRate = max(
+            waterSets[bioId].heatCapacity * max(waterSets[bioId].mixingDepth, 0.01)
+            / max(ubom.meteo.dtime, 1.0), 1.0);
+        float denominator = storageRate + (RHOA * CP) / max(raa, 1.0)
+                            + 4.0 * SIGMASB * pow(TwaterOld, 3);
+        float Twater = TwaterOld + wc * waterResidual / denominator;
+        Tsunlit = Twater;
+        Tshaded = Twater;
+        diffSunlitRad = waterResidual;
+        diffShadedRad = waterResidual;
     }else if(typeId == TYPE_SOIL || typeId == TYPE_BUILDING)
     {
         diffSunlitRad = netSunlitRad - (voxelHeatFlux[bufferId].LEsunlit + Gsunlit + voxelHeatFlux[bufferId].Hsunlit);

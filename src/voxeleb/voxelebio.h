@@ -102,6 +102,7 @@ VoxelebIO(){
     bool isTemperature;
     bool isDisplay;
     bool isImage;
+    bool isProcess;
     bool isAlbedo;
 
     std::shared_ptr<MeshIO> m_meshio;
