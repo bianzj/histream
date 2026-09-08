@@ -1,7 +1,12 @@
 //
 // Created by admin on 2024/1/26.
 //
+#ifdef _WIN32
 #include <io.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include "pipeline.h"
 
 
@@ -60,7 +65,7 @@ bool Pipeline::createPipeline(std::shared_ptr<VoxelebIO> &modelio)
             {VoxelEBStage::out,         baseDirectory + "/shader/voxeleb/voxelrad_image.comp.spv"}};
 
 
-    if (_access(VoxellstPaths[VoxelEBStage::gap].c_str(), 0) == -1)
+    if (access(VoxellstPaths[VoxelEBStage::gap].c_str(), 0) == -1)
     {
         std::string error = "Error: no shader file (.spv) found in " + baseDirectory + "\n";
         LOGI(error.c_str());
@@ -116,7 +121,7 @@ bool Pipeline::createPipeline(std::shared_ptr<VoxelebIO> &modelio)
 //            };
 //
 //
-//    if (_access(VoxeltracingPaths[VoxelRadStage::gap].c_str(), 0) == -1)
+//    if (access(VoxeltracingPaths[VoxelRadStage::gap].c_str(), 0) == -1)
 //    {
 //        std::string error = "Error: no shader file (.spv) found in " + baseDirectory + "\n";
 //        LOGI(error.c_str());

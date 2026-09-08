@@ -40,8 +40,9 @@ int main(int argc, char **argv) {
     std::string inputPath = argc > 2 ? argv[2] : "";
     std::string outputPath = argc > 3 ? argv[3] : "";
     if (mode != "eVoxelEB" && mode != "eFacetEB" && mode != "eFacetRT"
-        && mode != "eVoxelRT" && mode != "eRaytracing") {
-        std::cerr << "Usage: histream [eVoxelEB|eFacetEB|eFacetRT|eVoxelRT|eRaytracing] [Input.xml] [output.json]\n";
+        && mode != "eVoxelRT" && mode != "eRaytracing"
+        && mode != "eHexRT" && mode != "eHexEB") {
+        std::cerr << "Usage: histream [eVoxelEB|eFacetEB|eFacetRT|eVoxelRT|eRaytracing|eHexRT|eHexEB] [Input.xml] [output.json]\n";
         return 2;
     }
 

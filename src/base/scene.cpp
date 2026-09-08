@@ -3,6 +3,7 @@
 //
 
 #include "scene.h"
+#include "hexvoxel.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,6 +14,37 @@
 
 
 namespace {
+
+int centeredGridCellCount(float physicalExtent, float voxelSize)
+{
+    int count = static_cast<int>(std::ceil(physicalExtent / voxelSize));
+    // Integer voxel boundaries are centred on world zero only with an even
+    // horizontal cell count. Pad odd grids by one outer cell; the sensor keeps
+    // the requested physical field of view.
+    if ((count & 1) != 0) ++count;
+    return count;
+}
+
+bool keepParticipatingMediumVoxel(const Canopy& canopy,
+                                  const glm::ivec3& localVoxel,
+                                  const Shape& shape,
+                                  float stepSize)
+{
+    // Fog fills the complete primitive. Fire is narrowed into an upward flame.
+    if (canopy.structureType != 2) return true;
+    const int sizeX = std::max(1, static_cast<int>(std::ceil(shape.length / stepSize)));
+    const int sizeY = std::max(1, static_cast<int>(std::ceil(shape.height / stepSize)));
+    const int sizeZ = std::max(1, static_cast<int>(std::ceil(shape.width / stepSize)));
+    const float x = (static_cast<float>(localVoxel.x) + 0.5f) / sizeX - 0.5f;
+    const float y = std::clamp((static_cast<float>(localVoxel.y) + 0.5f) / sizeY, 0.0f, 1.0f);
+    const float z = (static_cast<float>(localVoxel.z) + 0.5f) / sizeZ - 0.5f;
+    constexpr float pi = 3.14159265358979323846f;
+    const float centreX = 0.075f * y * std::sin(2.0f * pi * (1.35f * y + 0.11f));
+    const float centreZ = 0.055f * y * std::sin(2.0f * pi * (1.85f * y + 0.37f));
+    const float radius = 0.08f + 0.48f * (1.0f - std::pow(y, 0.72f));
+    const float edgeNoise = 0.035f * std::sin(17.0f * x + 13.0f * z + 9.0f * y + 0.7f);
+    return std::hypot(x - centreX, z - centreZ) <= radius + edgeNoise;
+}
 
 struct ObjVoxelCoord {
     int x;
@@ -189,6 +221,72 @@ bool createObjFilledVoxels(Scene* scene, PrimEntity& entity,
 
     if (activeXYZ.empty()) return true;
 
+    // ===== 异质性体元 (hex voxel): 按局部坐标系计算逐体元 (Ax, Ay, Az, rho) =====
+    // 面元先投影到 x/y/z 三个正交方向得聚集指数, K^3 采样得体积密度
+    // (详见 hexvoxel.h / hexvoxel.cpp)。坐标系与 activeXYZ (voxelizeObjSurface)
+    // 一致 (均为 model 坐标 / stepsize_surface 的整胞索引):
+    //     hexGridIndex = localVoxel - gridOrigin
+    hexvoxel::HexScene hexScene;
+    hexvoxel::HexConfig hexConfig;
+    hexvoxel::HexResult hexResult;
+    std::vector<int> hexLookup;
+    bool hexReady = false;
+    { // OBJ 体元化始终生成介质属性，Voxel 模式同样需要三维 rho。
+        std::string hexErr;
+        if (hexvoxel::loadObj(entity.objFile, modelio->stepsize_surface, hexScene, &hexErr)) {
+            hexResult = hexvoxel::compute(hexScene, hexConfig, nullptr, 0, nullptr);
+            const long long ncells =
+                (long long)hexResult.gridX * hexResult.gridY * hexResult.gridZ;
+            hexLookup.assign(static_cast<std::size_t>(ncells), -1);
+            for (std::size_t i = 0; i < hexResult.voxels.size(); ++i) {
+                const auto& vr = hexResult.voxels[i];
+                const long long idx =
+                    ((long long)vr.iz * hexResult.gridY + vr.iy) * hexResult.gridX + vr.ix;
+                if (idx >= 0 && idx < ncells)
+                    hexLookup[static_cast<std::size_t>(idx)] = static_cast<int>(i);
+            }
+            hexReady = true;
+            std::cout << "Hex voxel: " << entity.objFile << " grid=" << hexResult.gridX << "x"
+                      << hexResult.gridY << "x" << hexResult.gridZ
+                      << " active=" << hexResult.voxels.size()
+                      << " meanRho=" << hexResult.meanRhoAll
+                      << " time=" << hexResult.computeMs << " ms" << std::endl;
+        } else {
+            std::cout << "Hex voxel: load failed: " << hexErr << std::endl;
+        }
+    }
+
+    // localVoxel -> VoxelIO::voxelHexs 新条目索引 (含 90° 旋转的轴置换);
+    // 无对应 hex 胞时返回 -1 (着色器退化为均匀体元行为)
+    auto hexIdForLocalVoxel = [&](const glm::ivec3& localVoxel, float rotationDeg) -> int {
+        if (!hexReady) return -1;
+        // ObjLoader 将 OBJ 的 X/Z 取反；原始胞 [i,i+1] 镜像后对应 [-i-1,-i]。
+        // hexvoxel 读取的是原始 OBJ 坐标，因此查表前必须做胞索引的逆镜像。
+        const glm::ivec3 sourceVoxel{
+            -localVoxel.x - 1, localVoxel.y, -localVoxel.z - 1};
+        const long long ix = (long long)sourceVoxel.x - std::lround(hexScene.gridOrigin[0]);
+        const long long iy = (long long)sourceVoxel.y - std::lround(hexScene.gridOrigin[1]);
+        const long long iz = (long long)sourceVoxel.z - std::lround(hexScene.gridOrigin[2]);
+        if (ix < 0 || iy < 0 || iz < 0 ||
+            ix >= hexResult.gridX || iy >= hexResult.gridY || iz >= hexResult.gridZ) {
+            return -1;
+        }
+        const int li = hexLookup[((iz * hexResult.gridY + iy) * hexResult.gridX + ix)];
+        if (li < 0) return -1;
+        hexvoxel::HexVoxelCg h = hexResult.voxels[li].hex;
+        // Y 轴 90° 旋转: ax/az 互换 (A 对方向取绝对值, 均匀缩放不变)
+        const int r90 = (int)(std::llround(rotationDeg / 90.0f) % 4);
+        if (r90 == 1 || r90 == 3) {
+            const float tmp = h.ax;
+            h.ax = h.az;
+            h.az = tmp;
+        }
+        // rho 只属于混浊介质；墙壁/土壤仅保留 CI 供表面模型使用。
+        const float rho = entity.type == Type::VEGETATION ? h.rho : 0.0f;
+        modelio->m_voxelio->voxelHexs.push_back(VoxelHex{h.ax, h.ay, h.az, rho});
+        return (int)modelio->m_voxelio->voxelHexs.size() - 1;
+    };
+
     auto accessor = nanoBuilder.getAccessor();
     auto& meshio = modelio->m_meshio;
     auto& instanceio = modelio->m_instanceio;
@@ -260,10 +358,13 @@ bool createObjFilledVoxels(Scene* scene, PrimEntity& entity,
             ? entity.scales[placementIndex] : 1.0f;
         const float rotationValue = placementIndex < entity.rotations.size()
             ? entity.rotations[placementIndex] : 0.0f;
+        // Use the same nearest-cell convention as sceneHalf/getVoxelIdSemi.
+        // Mixing floor(position / voxelSize) with a rounded sceneHalf shifts an
+        // OBJ by one complete voxel whenever the scene has an odd cell count.
         const glm::ivec3 gridShift{
-            static_cast<int>(std::floor(placement.x / modelio->stepsize_surface)),
-            static_cast<int>(std::floor(placement.z / modelio->stepsize_surface)),
-            static_cast<int>(std::floor(placement.y / modelio->stepsize_surface))};
+            static_cast<int>(std::lround(placement.x / modelio->stepsize_surface)),
+            static_cast<int>(std::lround(placement.z / modelio->stepsize_surface)),
+            static_cast<int>(std::lround(placement.y / modelio->stepsize_surface))};
 
         const glm::mat4 unit(1.0f);
         const glm::mat4 rotation = glm::rotate(
@@ -306,6 +407,7 @@ bool createObjFilledVoxels(Scene* scene, PrimEntity& entity,
             if (accessor.getValue(coord) >= 0) continue;
 
             accessor.setValue(coord, voxelCount);
+            const int hexId = hexIdForLocalVoxel(localVoxel, rotationValue);
             if (building) {
                 for (int face = 1; face <= 5; ++face) {
                     VoxelLink link{};
@@ -314,6 +416,7 @@ bool createObjFilledVoxels(Scene* scene, PrimEntity& entity,
                     link.aeroId = 0;
                     link.faceId = face;
                     link.isValid = 1;
+                    link.hexId = hexId;
                     voxelio->voxellinks.emplace_back(link);
                     ++voxelCount;
                 }
@@ -324,6 +427,7 @@ bool createObjFilledVoxels(Scene* scene, PrimEntity& entity,
                 link.aeroId = 0;
                 link.faceId = 0;
                 link.isValid = 1;
+                link.hexId = hexId;
                 voxelio->voxellinks.emplace_back(link);
                 ++voxelCount;
             }
@@ -671,6 +775,12 @@ bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<in
     meshlink1.type = (int) type;
     meshio->meshLinks.emplace_back(meshlink1);
 
+    const Canopy* mediumCanopy = meshlink1.canopyId >= 0 &&
+        static_cast<size_t>(meshlink1.canopyId) < meshio->canopies.size()
+        ? &meshio->canopies[meshlink1.canopyId] : nullptr;
+    const bool isParticipatingMedium = mediumCanopy != nullptr &&
+        (mediumCanopy->structureType == 2 || mediumCanopy->structureType == 3);
+
 
 
     if(voxelEntity.isdisFromFile == true){
@@ -695,10 +805,13 @@ bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<in
     for (int kinstance = 0; kinstance < voxelEntity.primDistributions.size(); kinstance++) {
         // voxel instance1��change postion,
 
-        glm::ivec3 shift0;
-        shift0 = {voxelEntity.primDistributions[kinstance].x / modelio->stepsize_surface,
-                  voxelEntity.primDistributions[kinstance].z / modelio->stepsize_surface,
-                  voxelEntity.primDistributions[kinstance].y / modelio->stepsize_surface};
+        const glm::vec3 placement = voxelEntity.primDistributions[kinstance];
+        const float originX = placement.x - (isParticipatingMedium ? shape.length * 0.5f : 0.0f);
+        const float originZ = placement.y - (isParticipatingMedium ? shape.width * 0.5f : 0.0f);
+        glm::ivec3 shift0 = {
+            originX / modelio->stepsize_surface,
+            placement.z / modelio->stepsize_surface,
+            originZ / modelio->stepsize_surface};
 
         ///-----------------------------------------------------------------------------
         ///
@@ -732,7 +845,11 @@ bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<in
         for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
             // this is what we did in the shader;
             // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
-            glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+            const glm::ivec3 localVoxel = glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+            if (isParticipatingMedium &&
+                !keepParticipatingMediumVoxel(*mediumCanopy, localVoxel, shape,
+                                              modelio->stepsize_surface)) continue;
+            glm::ivec3 Id = shift0 + localVoxel;
             int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
 
             // the first bufferid;
@@ -1133,9 +1250,10 @@ bool Scene::createPrimObj_Background(Background & background,nanovdb::GridBuilde
 
     modelio->sceneSize_XYZ =  background.sceneSize;
     modelio->sceneOrigin_XYZ = background.sceneOrigin;
-    modelio->voxelSize_XZY = glm::ivec3(background.sceneSize.x / background.stepsize_surface,
-                                        0,
-                                        background.sceneSize.y / background.stepsize_surface);
+    modelio->voxelSize_XZY = glm::ivec3(
+        centeredGridCellCount(background.sceneSize.x, background.stepsize_surface),
+        0,
+        centeredGridCellCount(background.sceneSize.y, background.stepsize_surface));
     modelio->voxelOrigin_XZY = glm::ivec3(background.sceneOrigin.x / background.stepsize_surface,
                                           0,
                                           background.sceneOrigin.y / background.stepsize_surface);
@@ -1164,7 +1282,7 @@ bool Scene::createPrimObj_Background(Background & background,nanovdb::GridBuilde
     if ((background.isDEM == true) && (background.DEMFile != "")) {
         std::cout<<("----------------error--------------------");
     } else {
-        bgModelXYZ = loader.createTriBackground(modelio->sceneSize_XYZ.x, modelio->sceneSize_XYZ.y, background.stepsize_surface);
+        bgModelXYZ = loader.createTriBackground(modelio->voxelSize_XZY.x * background.stepsize_surface, modelio->voxelSize_XZY.z * background.stepsize_surface, background.stepsize_surface);
     }
 
 
@@ -1372,6 +1490,12 @@ bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<in
     meshlink1.type = (int) type;
     meshio->meshLinks.emplace_back(meshlink1);
 
+    const Canopy* mediumCanopy = meshlink1.canopyId >= 0 &&
+        static_cast<size_t>(meshlink1.canopyId) < meshio->canopies.size()
+        ? &meshio->canopies[meshlink1.canopyId] : nullptr;
+    const bool isParticipatingMedium = mediumCanopy != nullptr &&
+        (mediumCanopy->structureType == 2 || mediumCanopy->structureType == 3);
+
 
 
     if(voxelEntity.isdisFromFile == true){
@@ -1396,10 +1520,13 @@ bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<in
     for (int kinstance = 0; kinstance < voxelEntity.primDistributions.size(); kinstance++) {
         // voxel instance1��change postion,
 
-        glm::ivec3 shift0;
-        shift0 = {voxelEntity.primDistributions[kinstance].x / modelio->stepsize_surface,
-                  voxelEntity.primDistributions[kinstance].z / modelio->stepsize_surface,
-                  voxelEntity.primDistributions[kinstance].y / modelio->stepsize_surface};
+        const glm::vec3 placement = voxelEntity.primDistributions[kinstance];
+        const float originX = placement.x - (isParticipatingMedium ? shape.length * 0.5f : 0.0f);
+        const float originZ = placement.y - (isParticipatingMedium ? shape.width * 0.5f : 0.0f);
+        glm::ivec3 shift0 = {
+            originX / modelio->stepsize_surface,
+            placement.z / modelio->stepsize_surface,
+            originZ / modelio->stepsize_surface};
 
         ///-----------------------------------------------------------------------------
         ///
@@ -1433,7 +1560,11 @@ bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<in
         for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
             // this is what we did in the shader;
             // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
-            glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+            const glm::ivec3 localVoxel = glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+            if (isParticipatingMedium &&
+                !keepParticipatingMediumVoxel(*mediumCanopy, localVoxel, shape,
+                                              modelio->stepsize_surface)) continue;
+            glm::ivec3 Id = shift0 + localVoxel;
             int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
 
             // the first bufferid;
@@ -1834,9 +1965,10 @@ bool Scene::createPrimObj_Background(Background & background,nanovdb::GridBuilde
 
     modelio->sceneSize_XYZ =  background.sceneSize;
     modelio->sceneOrigin_XYZ = background.sceneOrigin;
-    modelio->voxelSize_XZY = glm::ivec3(background.sceneSize.x / background.stepsize_surface,
-                                        0,
-                                        background.sceneSize.y / background.stepsize_surface);
+    modelio->voxelSize_XZY = glm::ivec3(
+        centeredGridCellCount(background.sceneSize.x, background.stepsize_surface),
+        0,
+        centeredGridCellCount(background.sceneSize.y, background.stepsize_surface));
     modelio->voxelOrigin_XZY = glm::ivec3(background.sceneOrigin.x / background.stepsize_surface,
                                           0,
                                           background.sceneOrigin.y / background.stepsize_surface);
@@ -1865,7 +1997,7 @@ bool Scene::createPrimObj_Background(Background & background,nanovdb::GridBuilde
     if ((background.isDEM == true) && (background.DEMFile != "")) {
         std::cout<<("----------------error--------------------");
     } else {
-        bgModelXYZ = loader.createTriBackground(modelio->sceneSize_XYZ.x, modelio->sceneSize_XYZ.y, background.stepsize_surface);
+        bgModelXYZ = loader.createTriBackground(modelio->voxelSize_XZY.x * background.stepsize_surface, modelio->voxelSize_XZY.z * background.stepsize_surface, background.stepsize_surface);
     }
 
 
@@ -2050,4 +2182,1401 @@ void Scene::outputObjMesh(ObjMesh model, std::string &fileName) {
 
 }
 
+// ===== Hex 模块重载 (实现与 Voxelrt/Voxeleb 相同, 额外触发 hexVoxel 计算) =====
+bool Scene::createPrimObjScene(std::shared_ptr<FileIO> &fileio, std::shared_ptr<HexebIO> &voxellstio) {
 
+
+    auto &scenexml = fileio->m_pVoxelebXml->scenexml;
+    auto &voxellstxml = fileio->m_pVoxelebXml;
+    auto &meshio = voxellstio->m_meshio;
+    auto &instanceio = voxellstio->m_instanceio;
+    auto &voxelio = voxellstio->m_voxelio;
+    auto &background = fileio->m_pVoxelebXml->scenexml.background;
+    nanovdb::GridBuilder<int32_t> nanoBuilder(-1);
+
+
+    /// ------------------------------------
+    /// Background
+    ///-------------------------------------
+    createPrimObj_Background(background, nanoBuilder, voxellstio);
+
+    /// ------------------------------------
+    /// voxel Components
+    ///-------------------------------------
+    for (int kVoxelModel = 0; kVoxelModel < scenexml.primEntities.size(); kVoxelModel++)
+    {
+        auto &voxelEntity = scenexml.primEntities[kVoxelModel];
+
+        if (voxelEntity.voxelizeFromObj) {
+            createObjFilledVoxels(this, voxelEntity, nanoBuilder, voxellstio);
+            continue;
+        }
+
+        if (voxelEntity.type == Type::VEGETATION)
+        {
+            if(voxelEntity.isshapeFromFile == true)
+            {
+                createPrimObj_Crowns(voxelEntity, nanoBuilder, voxellstio);
+            }else {
+                createPrimObj_Crown(voxelEntity, nanoBuilder, voxellstio);
+            }
+        }else if(voxelEntity.type == Type::BUILDING)
+        {
+            createPrimObj_Building(voxelEntity, nanoBuilder, voxellstio);
+        }else if(voxelEntity.type == Type::WATER)
+        {
+            createPrimObj_Crown(voxelEntity, nanoBuilder, voxellstio);
+        }
+
+    }
+    voxellstio->m_voxelio->nanoHandle = nanoBuilder.getHandle<>();
+
+
+    return true;
+}
+
+bool Scene::createPrimObjScene(std::shared_ptr<FileIO> &fileio, std::shared_ptr<HexrtIO> &voxellstio) {
+
+
+    auto &scenexml = fileio->m_pVoxelrtXml->scenexml;
+    auto &voxellstxml = fileio->m_pVoxelrtXml;
+    auto &meshio = voxellstio->m_meshio;
+    auto &instanceio = voxellstio->m_instanceio;
+    auto &voxelio = voxellstio->m_voxelio;
+    auto &background = fileio->m_pVoxelrtXml->scenexml.background;
+    nanovdb::GridBuilder<int32_t> nanoBuilder(-1);
+
+
+    /// ------------------------------------
+    /// Background
+    ///-------------------------------------
+    createPrimObj_Background(background, nanoBuilder, voxellstio);
+
+    /// ------------------------------------
+    /// voxel Components
+    ///-------------------------------------
+    for (int kVoxelModel = 0; kVoxelModel < scenexml.primEntities.size(); kVoxelModel++)
+    {
+        auto &voxelEntity = scenexml.primEntities[kVoxelModel];
+
+        if (voxelEntity.voxelizeFromObj) {
+            createObjFilledVoxels(this, voxelEntity, nanoBuilder, voxellstio);
+            continue;
+        }
+
+
+        if (voxelEntity.type == Type::VEGETATION)
+        {
+            if(voxelEntity.isshapeFromFile == true)
+            {
+                createPrimObj_Crowns(voxelEntity, nanoBuilder, voxellstio);
+            }else {
+                createPrimObj_Crown(voxelEntity, nanoBuilder, voxellstio);
+            }
+        }else if(voxelEntity.type == Type::BUILDING)
+        {
+            createPrimObj_Building(voxelEntity, nanoBuilder, voxellstio);
+        }
+
+    }
+    voxellstio->m_voxelio->nanoHandle = nanoBuilder.getHandle<>();
+
+
+    return true;
+}
+
+
+// ===== Hex scene helper 重载 (与 Voxeleb/Voxelrt 实现相同) =====
+bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<int32_t> &nanoBuilder,std::shared_ptr<HexebIO> &modelio){
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    VoxelDesigner loader;
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string modelName = voxelEntity.primitiveName;
+    Type type = voxelEntity.type;
+    Shape shape = voxelEntity.shape;
+    //meshio->types[0] = voxelEntity.types[0];
+    // std::string aeroName = voxelEntity.aeroNames[0];
+
+
+    PrimMesh currentVoxelModelXYZ1;
+    currentVoxelModelXYZ1 = loader.createTriEntity(shape, modelio->stepsize_surface);
+    PrimMesh currentVoxelModel1 = XYZ2XZY(currentVoxelModelXYZ1, 0); // (1,1,0) => (1,0,1) with  height = 0
+
+    // bool a = loader.outputPrimMesh("D:/data/field_data/Sim_homo_LAI_0.0_timeSeries/crown.obj", currentVoxelModel1);
+
+    currentVoxelModel1.meshId = n_modelmesh;
+    meshio->primMeshes.emplace_back(currentVoxelModel1); //xzy
+    std::string meshName1 = voxelEntity.meshNames[0];
+    std::string spectralName1 = voxelEntity.spectralNames[0];
+    std::string canopyName1 = voxelEntity.canopyNames[0];
+    std::string propName1 = voxelEntity.propNames[0];
+    MeshLink meshlink1;
+    meshlink1.spectralId = meshio->spectralNames.find(spectralName1)->second;
+    meshlink1.thermalId = 0;
+    meshlink1.canopyId = type == Type::WATER ? 0 : meshio->canopyNames.find(canopyName1)->second;
+    if (type == Type::VEGETATION) {
+        // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+        meshlink1.bioId = meshio->leafbioNames.find(propName1)->second;
+    } else if (type == Type::SOIL || type == Type::BUILDING) {
+        //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+        meshlink1.bioId = meshio->soilsetNames.find(propName1)->second;
+    } else if (type == Type::WATER) {
+        meshlink1.bioId = meshio->watersetNames.find(propName1)->second;
+    }
+    //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+    meshlink1.type = (int) type;
+    meshio->meshLinks.emplace_back(meshlink1);
+
+
+
+    if(voxelEntity.isdisFromFile == true){
+        int n_dis = 0;
+        float *tempx, *tempy,*tempz;
+        tempx = Utils::readascfile(voxelEntity.distributefile,0,0,n_dis);
+        tempy = Utils::readascfile(voxelEntity.distributefile,0,1,n_dis);
+        tempz = Utils::readascfile(voxelEntity.distributefile,0,2,n_dis);
+        voxelEntity.primDistributions.resize(n_dis);
+        voxelEntity.scales.resize(n_dis);
+        voxelEntity.rotations.resize(n_dis);
+        for(int kin = 0;kin<n_dis;kin++)
+        {
+            voxelEntity.primDistributions[kin]=(glm::vec3(tempx[kin],tempy[kin],tempz[kin]));
+            voxelEntity.scales[kin] = 1.0;
+            voxelEntity.rotations[kin] = 0.0;
+        }
+    }
+
+    // instance
+
+    for (int kinstance = 0; kinstance < voxelEntity.primDistributions.size(); kinstance++) {
+        // voxel instance1��change postion,
+
+        glm::ivec3 shift0;
+        shift0 = {voxelEntity.primDistributions[kinstance].x / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].z / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].y / modelio->stepsize_surface};
+
+        ///-----------------------------------------------------------------------------
+        ///
+        ///------------------------------------------------------------------------------
+        glm::ivec3 semiRange = glm::vec3{floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0,
+                                         floor(modelio->voxelSize_XZY.z / 2.0+0.5)};;
+
+        float scale0 = voxelEntity.scales[kinstance];
+        float angle0 = voxelEntity.rotations[kinstance];
+        glm::vec3 shift = glm::vec3(shift0) - glm::vec3(semiRange);  // (5,0,5)
+
+        //
+        glm::mat4 unit = glm::mat4(1.0f);
+        glm::vec3 scale = glm::vec3(scale0);
+        glm::mat4 angle = glm::rotate(unit, glm::radians(angle0), glm::vec3(0.0, 1.0, 0.0));
+        glm::mat4 mat = glm::scale(unit, scale) * glm::translate(unit, shift);
+
+        Instance instance1{};
+        instance1.meshId = static_cast<uint32_t>(n_modelmesh);
+        instance1.object2worldMatrix = mat;
+        instance1.world2objectMatrix = glm::transpose(glm::inverse(mat));
+        instanceio->instances.emplace_back(instance1);
+        // voxel Instance Link
+        InstanceLink instancelink1{};
+        instancelink1.meshId = instance1.meshId;
+        instanceio->instanceLinks.emplace_back(instancelink1);
+
+
+        int isValid = 0;
+
+        for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
+            // this is what we did in the shader;
+            // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
+            glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+            int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
+
+            // the first bufferid;
+
+            if (test < 0) {
+
+                acc.setValue(nanovdb::Coord(Id.x, Id.y, Id.z), n_voxel);
+                glm::ivec3 voxelPos = glm::ivec3(Id.x * 1.0, Id.y * 1.0, Id.z * 1.0);  //(5,0,5) with height = 0
+
+                VoxelLink voxelLink{};
+                voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                voxelLink.instanceId = n_instance;
+                voxelLink.aeroId = 0;
+                voxelLink.faceId = 0; // center
+                voxelLink.isValid = 1; // center
+                modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+                n_voxel++;
+                isValid = 1;
+
+            }
+        }
+        if (isValid == 0) {
+            continue;
+        }
+
+        n_instance++;
+
+        //std::string info = "voxel entity " + std::to_string(kVoxelModel) + " done.\n";
+        //LOGI(info.c_str());
+        // float tt = acc.getValue(nanovdb::Coord(24, 0, 24));
+    }
+    n_modelmesh++;
+    return true;
+}
+
+bool Scene::createPrimObj_Crowns(PrimEntity & voxelEntity,nanovdb::GridBuilder<int32_t> &nanoBuilder,std::shared_ptr<HexebIO> &modelio){
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    VoxelDesigner loader;
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string modelName = voxelEntity.primitiveName;
+    Type type = voxelEntity.type;
+
+    //meshio->types[0] = voxelEntity.types[0];
+    // std::string aeroName = voxelEntity.aeroNames[0];
+
+
+    int n_dis = 0;
+    float *tempx, *tempy,*tempz,*temp1, *temp2,*temp3,*temps,*tempsc,*tempr;
+    temps = Utils::readascfile(voxelEntity.shapefile,0,0,n_dis);
+    temp1 = Utils::readascfile(voxelEntity.shapefile,0,1,n_dis);
+    temp2 = Utils::readascfile(voxelEntity.shapefile,0,2,n_dis);
+    temp3 = Utils::readascfile(voxelEntity.shapefile,0,3,n_dis);
+    tempx = Utils::readascfile(voxelEntity.shapefile,0,4,n_dis);
+    tempy = Utils::readascfile(voxelEntity.shapefile,0,5,n_dis);
+    tempz = Utils::readascfile(voxelEntity.shapefile,0,6,n_dis);
+    tempsc = Utils::readascfile(voxelEntity.shapefile,0,7,n_dis);
+    tempr = Utils::readascfile(voxelEntity.shapefile,0,8,n_dis);
+
+    for(int k = 0;k<n_dis;k++) {
+
+
+        Shape shape = Shape{ShapeType(temps[k]),temp1[k],temp2[k],temp3[k],{tempx[k],tempy[k],tempz[k]}};
+
+
+        PrimMesh currentVoxelModelXYZ1;
+        currentVoxelModelXYZ1 = loader.createTriEntity(shape, modelio->stepsize_surface);
+        PrimMesh currentVoxelModel1 = XYZ2XZY(currentVoxelModelXYZ1, 1); // (1,1,0) => (1,0,1) with  height = 0
+        currentVoxelModel1.meshId = n_modelmesh;
+        meshio->primMeshes.emplace_back(currentVoxelModel1); //xzy
+        std::string meshName1 = voxelEntity.meshNames[0];
+        std::string spectralName1 = voxelEntity.spectralNames[0];
+        std::string canopyName1 = voxelEntity.canopyNames[0];
+        std::string propName1 = voxelEntity.propNames[0];
+        MeshLink meshlink1;
+        meshlink1.spectralId = meshio->spectralNames.find(spectralName1)->second;
+        meshlink1.thermalId = 0;
+        meshlink1.canopyId = meshio->canopyNames.find(canopyName1)->second;
+        if (type == Type::VEGETATION) {
+            // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+            meshlink1.bioId = meshio->leafbioNames.find(propName1)->second;
+        } else if (type == Type::SOIL || type == Type::BUILDING) {
+            //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+            meshlink1.bioId = meshio->soilsetNames.find(propName1)->second;
+        }
+        //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+        meshlink1.type = (int) type;
+        meshio->meshLinks.emplace_back(meshlink1);
+
+        // instance
+
+
+        for (int kinstance = 0; kinstance < 1; kinstance++) {
+            // voxel instance1��change postion,
+
+            glm::ivec3 shift0;
+            shift0 = {shape.pos.x / modelio->stepsize_surface,
+                      shape.pos.z / modelio->stepsize_surface,
+                      shape.pos.y / modelio->stepsize_surface};
+
+            ///-----------------------------------------------------------------------------
+            /// Attention!!!!
+            ///------------------------------------------------------------------------------
+            glm::ivec3 semiRange = glm::vec3{floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0,
+                                             floor(modelio->voxelSize_XZY.z / 2.0+0.5)};;
+
+            float scale0 = 1;
+            float angle0 = 0;
+            glm::vec3 shift = glm::vec3(shift0) - glm::vec3(semiRange);  // (5,0,5)
+
+            //
+            glm::mat4 unit = glm::mat4(1.0f);
+            glm::vec3 scale = glm::vec3(scale0);
+            glm::mat4 angle = glm::rotate(unit, glm::radians(angle0), glm::vec3(0.0, 1.0, 0.0));
+            glm::mat4 mat = glm::scale(unit, scale) * glm::translate(unit, shift);
+
+            Instance instance1{};
+            instance1.meshId = static_cast<uint32_t>(n_modelmesh);
+            instance1.object2worldMatrix = mat;
+            instance1.world2objectMatrix = glm::transpose(glm::inverse(mat));
+            instanceio->instances.emplace_back(instance1);
+            // voxel Instance Link
+            InstanceLink instancelink1{};
+            instancelink1.meshId = instance1.meshId;
+            instanceio->instanceLinks.emplace_back(instancelink1);
+
+
+            int isValid = 0;
+
+            for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
+                // this is what we did in the shader;
+                // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
+                glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+                int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
+
+                // the first bufferid;
+
+                if (test < 0) {
+
+                    acc.setValue(nanovdb::Coord(Id.x, Id.y, Id.z), n_voxel);
+                    glm::ivec3 voxelPos = glm::ivec3(Id.x * 1.0, Id.y * 1.0, Id.z * 1.0);  //(5,0,5) with height = 0
+
+                    VoxelLink voxelLink{};
+                    voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                    voxelLink.instanceId = n_instance;
+                    voxelLink.aeroId = 0;
+                    voxelLink.faceId = 0; // center
+                    voxelLink.isValid = 1; // center
+                    modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+                    n_voxel++;
+                    isValid = 1;
+
+                }
+            }
+            if (isValid == 0) {
+                continue;
+            }
+
+            n_instance++;
+
+            //std::string info = "voxel entity " + std::to_string(kVoxelModel) + " done.\n";
+            //LOGI(info.c_str());
+            // float tt = acc.getValue(nanovdb::Coord(24, 0, 24));
+        }
+        n_modelmesh++;
+    }
+    return true;
+}
+
+bool Scene::createPrimObj_Building(PrimEntity & voxelEntity,nanovdb::GridBuilder<int32_t> &nanoBuilder, std::shared_ptr<HexebIO> &modelio) {
+
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    VoxelDesigner loader;
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string modelName = voxelEntity.primitiveName;
+    Type type = voxelEntity.type;
+    Shape shape = voxelEntity.shape;
+    //meshio->types[0] = voxelEntity.types[0];
+    // std::string aeroName = voxelEntity.aeroNames[0];
+
+
+    PrimMesh currentVoxelModelXYZ1;
+    if (voxelEntity.isheightFromFile == 1) {
+        currentVoxelModelXYZ1 = loader.createTriEntitiesFromTif_wall(voxelEntity.heightfile, modelio->voxelSize_XZY,modelio->stepsize_height);
+    } else {
+        currentVoxelModelXYZ1 = loader.createTriCube_wall(shape, modelio->stepsize_surface);
+    }
+
+    PrimMesh currentVoxelModel1 = XYZ2XZY(currentVoxelModelXYZ1, 1); // (1,1,0) => (1,0,1) with  height = 0
+    currentVoxelModel1.meshId = n_modelmesh;
+    meshio->primMeshes.emplace_back(currentVoxelModel1); //xzy
+    std::string meshName1 = voxelEntity.meshNames[0];
+    std::string spectralName1 = voxelEntity.spectralNames[0];
+    std::string canopyName1 = voxelEntity.canopyNames[0];
+    std::string propName1 = voxelEntity.propNames[0];
+    MeshLink meshlink1;
+    meshlink1.spectralId = meshio->spectralNames.find(spectralName1)->second;
+    meshlink1.thermalId = 0;
+    meshlink1.canopyId = meshio->canopyNames.find(canopyName1)->second;
+    if (type == Type::VEGETATION) {
+        // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+        meshlink1.bioId = meshio->leafbioNames.find(propName1)->second;
+    } else if (type == Type::SOIL || type == Type::BUILDING) {
+        //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+        meshlink1.bioId = meshio->soilsetNames.find(propName1)->second;
+    }
+    //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+    meshlink1.type = (int) type;
+    meshio->meshLinks.emplace_back(meshlink1);
+
+    PrimMesh currentVoxelModel2{};
+    PrimMesh currentVoxelModelXYZ2;
+    if (voxelEntity.isheightFromFile == 1) {
+        currentVoxelModelXYZ2 = loader.createTriEntitiesFromTif_roof(voxelEntity.heightfile, modelio->voxelSize_XZY,modelio->stepsize_height);
+    } else {
+        currentVoxelModelXYZ2 = loader.createTriCube_roof(shape, modelio->stepsize_surface);
+    }
+
+    currentVoxelModel2 = XYZ2XZY(currentVoxelModelXYZ2, 1); // (1,1,0) => (1,0,1) with  height = 0
+    currentVoxelModel2.meshId = n_modelmesh + 1;
+    meshio->primMeshes.emplace_back(currentVoxelModel2); //xzy
+
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string meshName2 = voxelEntity.meshNames[1];
+    std::string spectralName2 = voxelEntity.spectralNames[1];
+    std::string canopyName2 = voxelEntity.canopyNames[1];
+    std::string propName2 = voxelEntity.propNames[1];
+    MeshLink meshlink2;
+    meshlink2.spectralId = meshio->spectralNames.find(spectralName2)->second;
+    meshlink2.thermalId = 0;
+    meshlink2.canopyId = meshio->canopyNames.find(canopyName2)->second;
+    if (type == Type::VEGETATION) {
+        // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+        meshlink2.bioId = meshio->leafbioNames.find(propName2)->second;
+    } else if (type == Type::SOIL || type == Type::BUILDING) {
+        //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+        meshlink2.bioId = meshio->soilsetNames.find(propName2)->second;
+    }
+    //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+    meshlink2.type = (int) type;
+    meshio->meshLinks.emplace_back(meshlink2);
+
+
+    // instance
+
+    for (int kinstance = 0; kinstance < voxelEntity.primDistributions.size(); kinstance++) {
+        // voxel instance1��change postion,
+
+        glm::ivec3 shift0;
+        shift0 = {voxelEntity.primDistributions[kinstance].x / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].z / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].y / modelio->stepsize_surface};
+
+
+        ///-----------------------------------------------------------------------------
+        /// Attention!!!!
+        ///------------------------------------------------------------------------------
+        glm::ivec3 semiRange = glm::vec3{floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0,
+                                         floor(modelio->voxelSize_XZY.z / 2.0+0.5)};;
+
+        float scale0 = voxelEntity.scales[kinstance];
+        float angle0 = voxelEntity.rotations[kinstance];
+        glm::vec3 shift = glm::vec3(shift0) - glm::vec3(semiRange);  // (5,0,5)
+
+        //
+        glm::mat4 unit = glm::mat4(1.0f);
+        glm::vec3 scale = glm::vec3(scale0);
+        glm::mat4 angle = glm::rotate(unit, glm::radians(angle0), glm::vec3(0.0, 1.0, 0.0));
+        glm::mat4 mat = glm::scale(unit, scale) * glm::translate(unit, shift);
+
+        Instance instance1{};
+        instance1.meshId = static_cast<uint32_t>(n_modelmesh);
+        instance1.object2worldMatrix = mat;
+        instance1.world2objectMatrix = glm::transpose(glm::inverse(mat));
+        instanceio->instances.emplace_back(instance1);
+        // voxel Instance Link
+        InstanceLink instancelink1{};
+        instancelink1.meshId = instance1.meshId;
+        instanceio->instanceLinks.emplace_back(instancelink1);
+
+        Instance instance2{};
+        instance2.meshId = static_cast<uint32_t>(n_modelmesh + 1);
+        instance2.object2worldMatrix = mat;
+        instance2.world2objectMatrix = glm::transpose(glm::inverse(mat));
+        instanceio->instances.emplace_back(instance2);
+        // voxel Instance Link
+        InstanceLink instancelink2{};
+        instancelink2.meshId = instance2.meshId;
+        instanceio->instanceLinks.emplace_back(instancelink2);
+
+
+        int isValid = 0;
+        if ((voxelEntity.meshNames.size() == 2) && (voxelEntity.type == Type::BUILDING)) {
+
+            for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
+                // this is what we did in the shader;
+                // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
+                glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+                int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
+
+                // the first bufferid;
+
+                if (test < 0) {
+                    ///-----------------------------------------------------------------------------
+                    /// Attention!!!! only the first buffer is collected.
+                    ///------------------------------------------------------------------------------
+
+                    acc.setValue(nanovdb::Coord(Id.x, Id.y, Id.z), n_voxel);
+                    glm::ivec3 voxelPos = glm::ivec3(Id.x * 1.0, Id.y * 1.0, Id.z * 1.0);  //(5,0,5) with height = 0
+
+
+                    for (int kf = 0; kf < 4; kf++) {
+                        VoxelLink voxelLink{};
+                        voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                        voxelLink.instanceId = n_instance;
+                        voxelLink.aeroId = 0;
+                        voxelLink.faceId = kf+1; // center
+                        voxelLink.isValid = currentVoxelModel1.isValids[kvoxel].values[kf]; // center
+                        modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+
+                        n_voxel++;
+                        isValid = 1;
+                    }
+
+                    for (int kf = 4; kf < 5; kf++) {
+                        VoxelLink voxelLink{};
+                        voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                        voxelLink.instanceId = n_instance + 1;
+                        voxelLink.aeroId = 0;
+                        voxelLink.faceId = kf+1; // center
+                        voxelLink.isValid = currentVoxelModel1.isValids[kvoxel].values[kf];
+                        modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+
+                        n_voxel++;
+                        isValid = 1;
+                    }
+
+
+                }
+
+            }
+
+            if (isValid == 0) {
+                continue;
+            }
+
+
+            if (voxelEntity.meshNames.size() == 2) {
+                n_instance = n_instance + 2;
+            } else {
+                n_instance++;
+            }
+
+        }
+
+
+        if (voxelEntity.meshNames.size() == 2) {
+            n_modelmesh = n_modelmesh + 2;
+        } else {
+            n_modelmesh++;
+        }
+        //std::string info = "voxel entity " + std::to_string(kVoxelModel) + " done.\n";
+        //LOGI(info.c_str());
+        // float tt = acc.getValue(nanovdb::Coord(24, 0, 24));
+    }
+    return true;
+}
+
+bool Scene::createPrimObj_Background(Background & background,nanovdb::GridBuilder<int32_t> &nanoBuilder, std::shared_ptr<HexebIO> &modelio){
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    auto &surfio = modelio->m_surfio;
+
+
+    modelio->sceneSize_XYZ =  background.sceneSize;
+    modelio->sceneOrigin_XYZ = background.sceneOrigin;
+    modelio->voxelSize_XZY = glm::ivec3(
+        centeredGridCellCount(background.sceneSize.x, background.stepsize_surface),
+        0,
+        centeredGridCellCount(background.sceneSize.y, background.stepsize_surface));
+    modelio->voxelOrigin_XZY = glm::ivec3(background.sceneOrigin.x / background.stepsize_surface,
+                                          0,
+                                          background.sceneOrigin.y / background.stepsize_surface);
+
+    modelio->stepsize_surface = background.stepsize_surface;
+    modelio->stepsize_height = background.stepsize_height;
+    modelio->lat = background.lat;
+    modelio->lon = background.lon;
+//    modelio->stepsize_surface = 1.0;
+    //modelio->n_surface = modelio->voxelSize_XZY.x * modelio->voxelSize_XZY.y;
+
+    ///----------------------------------------------------------------
+    /// From now on, using voxel space
+    ///----------------------------------------------------------------
+
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    /// ------------------------------------
+    /// BACKGROUND mesh
+    ///-------------------------------------
+
+    VoxelDesigner loader;
+    PrimMesh bgModelXYZ;
+    if ((background.isDEM == true) && (background.DEMFile != "")) {
+        std::cout<<("----------------error--------------------");
+    } else {
+        bgModelXYZ = loader.createTriBackground(modelio->voxelSize_XZY.x * background.stepsize_surface, modelio->voxelSize_XZY.z * background.stepsize_surface, background.stepsize_surface);
+    }
+
+
+    bgModelXYZ.meshId = n_modelmesh;
+    PrimMesh bgModel = XYZ2XZY(bgModelXYZ);
+    meshio->primMeshes.emplace_back(bgModel);
+
+    // background model link
+    MeshLink bgMeshLink;
+    const auto thermalIt = meshio->thermalNames.find(background.bgThermalName);
+    bgMeshLink.thermalId = thermalIt == meshio->thermalNames.end() ? 0 : thermalIt->second;
+    bgMeshLink.canopyId = 0;
+    std::string bgSpectralName = background.bgSpectralName;
+    bgMeshLink.spectralId = meshio->spectralNames.find(bgSpectralName)->second;
+//    std::string bgThermalName;
+//    int bgThermalIndex = 0;
+//    if (fileio->m_pVoxelebXml->sensorxml.isTemperature == true)
+//    {
+//        bgThermalName = scenexml.background.bgThermalName;
+//        bgThermalIndex = meshio->thermalNames.find(bgThermalName)->second;
+//    }
+
+    int bgCanopyindex = 0;
+    //  std::string bgCanopyName = scenexml.background.canopyName;
+    //  bgMeshLink.canopyId = meshio->canopyNames.find(bgCanopyName)->second;
+    int bgPropIndex = 0;
+    std::string bgPropName = background.bgPropName;
+    if (background.type == Type::WATER) {
+        bgPropIndex = meshio->watersetNames.find(bgPropName)->second;
+    } else {
+        bgPropIndex = meshio->soilsetNames.find(bgPropName)->second;
+    }
+    bgMeshLink.bioId = bgPropIndex;
+    bgMeshLink.type = static_cast<int>(background.type);
+    meshio->meshLinks.emplace_back(bgMeshLink);
+
+    /// ------------------------------------
+    /// BACKGROUND instance
+    /// Voxelsize is XZY
+    /// iN cg space: (voxelsize.x - voxelsize.x/2, voxelsize.y, voxelsize.z - voxelsize.z/2)
+    ///-------------------------------------
+    Instance bgInstance{};
+    bgInstance.meshId = static_cast<uint32_t>(n_modelmesh);
+    glm::mat4 bgunit = glm::mat4(1.0f);
+    // here for 0-9 will become -5 - 4
+    glm::vec3 bgShift = glm::vec3{-floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0 - loader.minElevation,
+                                  -floor(modelio->voxelSize_XZY.z / 2.0+0.5)};
+
+//    glm::vec3 bgShift = glm::vec3{0,0,0};
+
+    glm::vec3 bgScale = glm::vec3{1.0, 1.0, 1.0};
+    glm::mat4 bgMat = glm::scale(bgunit, bgScale) * glm::translate(bgunit, bgShift);
+    bgInstance.object2worldMatrix = bgMat;
+    bgInstance.world2objectMatrix = glm::transpose(glm::inverse(bgMat));
+    instanceio->instances.emplace_back(bgInstance);
+
+
+    // background instanceLink
+    InstanceLink bgInstanceLink{};
+    bgInstanceLink.meshId = bgInstance.meshId;
+    instanceio->instanceLinks.emplace_back(bgInstanceLink);
+
+    //--------------------------------------------
+    // background voxelLink
+    //--------------------------------------------
+    for (int kvoxel = 0; kvoxel < bgModel.voxelIds.size(); kvoxel++) {
+        glm::ivec3 voxelId = glm::ivec3(bgModel.voxelIds[kvoxel]);// + nvmath::vec3i(bgShift);
+        int test = acc.getValue(nanovdb::Coord(voxelId.x, voxelId.y, voxelId.z)); //(1,0,1)
+
+        if (test < 0) {
+            acc.setValue(nanovdb::Coord(voxelId.x, voxelId.y, voxelId.z), n_voxel);
+            VoxelLink voxellink{};
+            glm::ivec3 voxelId_ = glm::ivec3(voxelId.x * 1.0, voxelId.y * 1.0, voxelId.z * 1.0);
+            voxellink.voxelId = voxelId_;
+            voxellink.instanceId = n_instance;
+            voxellink.faceId = 5;
+            voxellink.isValid = 1;
+            voxellink.aeroId = 0;
+
+            voxelio->voxellinks.emplace_back(voxellink);
+            n_voxel++;
+        }
+    }
+    n_instance++;
+    n_modelmesh++;
+
+
+    if(background.isLad==true){
+        // read lad tif
+        int width = 0,height = 0, nband = 1;
+        Utils::readImageinout1(background.ladfile,surfio->lads,width, height,nband);
+    }else{
+        surfio->lads.emplace_back(0);
+    }
+
+    /// ------------------------------------
+    ///  Divided  Background, Need to be provided
+    ///-------------------------------------
+
+    /// ------------------------------------
+    ///  Divided  Background, Need to be provided
+    ///-------------------------------------
+
+    return true;
+}
+
+bool Scene::createPrimObj_Crown(PrimEntity & voxelEntity,nanovdb::GridBuilder<int32_t> &nanoBuilder,std::shared_ptr<HexrtIO> &modelio){
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    VoxelDesigner loader;
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string modelName = voxelEntity.primitiveName;
+    Type type = voxelEntity.type;
+    Shape shape = voxelEntity.shape;
+    //meshio->types[0] = voxelEntity.types[0];
+    // std::string aeroName = voxelEntity.aeroNames[0];
+
+
+    PrimMesh currentVoxelModelXYZ1;
+    currentVoxelModelXYZ1 = loader.createTriEntity(shape, modelio->stepsize_surface);
+    PrimMesh currentVoxelModel1 = XYZ2XZY(currentVoxelModelXYZ1, 0); // (1,1,0) => (1,0,1) with  height = 0
+    currentVoxelModel1.meshId = n_modelmesh;
+    meshio->primMeshes.emplace_back(currentVoxelModel1); //xzy
+    std::string meshName1 = voxelEntity.meshNames[0];
+    std::string spectralName1 = voxelEntity.spectralNames[0];
+    std::string thermalName1 = voxelEntity.thermalNames[0];
+    std::string canopyName1 = voxelEntity.canopyNames[0];
+    std::string propName1 = voxelEntity.propNames[0];
+    MeshLink meshlink1;
+    meshlink1.spectralId = meshio->spectralNames.find(spectralName1)->second;
+    meshlink1.thermalId = meshio->thermalNames.find(thermalName1)->second;
+    meshlink1.canopyId = meshio->canopyNames.find(canopyName1)->second;
+//    if (type == Type::VEGETATION) {
+//        // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+//        meshlink1.bioId = meshio->leafbioNames.find(propName1)->second;
+//    } else if (type == Type::SOIL || type == Type::BUILDING) {
+//        //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+//        meshlink1.bioId = meshio->soilsetNames.find(propName1)->second;
+//    }
+    //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+    meshlink1.type = (int) type;
+    meshio->meshLinks.emplace_back(meshlink1);
+
+
+
+    if(voxelEntity.isdisFromFile == true){
+        int n_dis = 0;
+        float *tempx, *tempy,*tempz;
+        tempx = Utils::readascfile(voxelEntity.distributefile,0,0,n_dis);
+        tempy = Utils::readascfile(voxelEntity.distributefile,0,1,n_dis);
+        tempz = Utils::readascfile(voxelEntity.distributefile,0,2,n_dis);
+        voxelEntity.primDistributions.resize(n_dis);
+        voxelEntity.scales.resize(n_dis);
+        voxelEntity.rotations.resize(n_dis);
+        for(int kin = 0;kin<n_dis;kin++)
+        {
+            voxelEntity.primDistributions[kin]=(glm::vec3(tempx[kin],tempy[kin],tempz[kin]));
+            voxelEntity.scales[kin] = 1.0;
+            voxelEntity.rotations[kin] = 0.0;
+        }
+    }
+
+    // instance
+
+    for (int kinstance = 0; kinstance < voxelEntity.primDistributions.size(); kinstance++) {
+        // voxel instance1��change postion,
+
+        glm::ivec3 shift0;
+        shift0 = {voxelEntity.primDistributions[kinstance].x / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].z / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].y / modelio->stepsize_surface};
+
+        ///-----------------------------------------------------------------------------
+        ///
+        ///------------------------------------------------------------------------------
+        glm::ivec3 semiRange = glm::vec3{floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0,
+                                         floor(modelio->voxelSize_XZY.z / 2.0+0.5)};;
+
+        float scale0 = voxelEntity.scales[kinstance];
+        float angle0 = voxelEntity.rotations[kinstance];
+        glm::vec3 shift = glm::vec3(shift0) - glm::vec3(semiRange);  // (5,0,5)
+
+        //
+        glm::mat4 unit = glm::mat4(1.0f);
+        glm::vec3 scale = glm::vec3(scale0);
+        glm::mat4 angle = glm::rotate(unit, glm::radians(angle0), glm::vec3(0.0, 1.0, 0.0));
+        glm::mat4 mat = glm::scale(unit, scale) * glm::translate(unit, shift);
+
+        Instance instance1{};
+        instance1.meshId = static_cast<uint32_t>(n_modelmesh);
+        instance1.object2worldMatrix = mat;
+        instance1.world2objectMatrix = glm::transpose(glm::inverse(mat));
+        instanceio->instances.emplace_back(instance1);
+        // voxel Instance Link
+        InstanceLink instancelink1{};
+        instancelink1.meshId = instance1.meshId;
+        instanceio->instanceLinks.emplace_back(instancelink1);
+
+
+        int isValid = 0;
+
+        for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
+            // this is what we did in the shader;
+            // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
+            glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+            int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
+
+            // the first bufferid;
+
+            if (test < 0) {
+
+                acc.setValue(nanovdb::Coord(Id.x, Id.y, Id.z), n_voxel);
+                glm::ivec3 voxelPos = glm::ivec3(Id.x * 1.0, Id.y * 1.0, Id.z * 1.0);  //(5,0,5) with height = 0
+
+                VoxelLink voxelLink{};
+                voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                voxelLink.instanceId = n_instance;
+                voxelLink.aeroId = 0;
+                voxelLink.faceId = 0; // center
+                voxelLink.isValid = 1; // center
+                modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+                n_voxel++;
+                isValid = 1;
+
+            }
+        }
+        if (isValid == 0) {
+            continue;
+        }
+
+        n_instance++;
+
+        //std::string info = "voxel entity " + std::to_string(kVoxelModel) + " done.\n";
+        //LOGI(info.c_str());
+        // float tt = acc.getValue(nanovdb::Coord(24, 0, 24));
+    }
+    n_modelmesh++;
+    return true;
+}
+
+bool Scene::createPrimObj_Crowns(PrimEntity & voxelEntity,nanovdb::GridBuilder<int32_t> &nanoBuilder,std::shared_ptr<HexrtIO> &modelio){
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    VoxelDesigner loader;
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string modelName = voxelEntity.primitiveName;
+    Type type = voxelEntity.type;
+
+    //meshio->types[0] = voxelEntity.types[0];
+    // std::string aeroName = voxelEntity.aeroNames[0];
+
+
+    int n_dis = 0;
+    float *tempx, *tempy,*tempz,*temp1, *temp2,*temp3,*temps,*tempsc,*tempr;
+    temps = Utils::readascfile(voxelEntity.shapefile,0,0,n_dis);
+    temp1 = Utils::readascfile(voxelEntity.shapefile,0,1,n_dis);
+    temp2 = Utils::readascfile(voxelEntity.shapefile,0,2,n_dis);
+    temp3 = Utils::readascfile(voxelEntity.shapefile,0,3,n_dis);
+    tempx = Utils::readascfile(voxelEntity.shapefile,0,4,n_dis);
+    tempy = Utils::readascfile(voxelEntity.shapefile,0,5,n_dis);
+    tempz = Utils::readascfile(voxelEntity.shapefile,0,6,n_dis);
+    tempsc = Utils::readascfile(voxelEntity.shapefile,0,7,n_dis);
+    tempr = Utils::readascfile(voxelEntity.shapefile,0,8,n_dis);
+
+    for(int k = 0;k<n_dis;k++) {
+
+
+        Shape shape = Shape{ShapeType(temps[k]),temp1[k],temp2[k],temp3[k],{tempx[k],tempy[k],tempz[k]}};
+
+
+        PrimMesh currentVoxelModelXYZ1;
+        currentVoxelModelXYZ1 = loader.createTriEntity(shape, modelio->stepsize_surface);
+        PrimMesh currentVoxelModel1 = XYZ2XZY(currentVoxelModelXYZ1, 1); // (1,1,0) => (1,0,1) with  height = 0
+        currentVoxelModel1.meshId = n_modelmesh;
+        meshio->primMeshes.emplace_back(currentVoxelModel1); //xzy
+        std::string meshName1 = voxelEntity.meshNames[0];
+        std::string spectralName1 = voxelEntity.spectralNames[0];
+        std::string canopyName1 = voxelEntity.canopyNames[0];
+        std::string propName1 = voxelEntity.propNames[0];
+        MeshLink meshlink1;
+        meshlink1.spectralId = meshio->spectralNames.find(spectralName1)->second;
+        meshlink1.thermalId = 0;
+        meshlink1.canopyId = meshio->canopyNames.find(canopyName1)->second;
+//        if (type == Type::VEGETATION) {
+//            // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+//            meshlink1.bioId = meshio->leafbioNames.find(propName1)->second;
+//        } else if (type == Type::SOIL || type == Type::BUILDING) {
+//            //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+//            meshlink1.bioId = meshio->soilsetNames.find(propName1)->second;
+//        }
+        //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+        meshlink1.type = (int) type;
+        meshio->meshLinks.emplace_back(meshlink1);
+
+        // instance
+
+
+        for (int kinstance = 0; kinstance < 1; kinstance++) {
+            // voxel instance1��change postion,
+
+            glm::ivec3 shift0;
+            shift0 = {shape.pos.x / modelio->stepsize_surface,
+                      shape.pos.z / modelio->stepsize_surface,
+                      shape.pos.y / modelio->stepsize_surface};
+
+            ///-----------------------------------------------------------------------------
+            /// Attention!!!!
+            ///------------------------------------------------------------------------------
+            glm::ivec3 semiRange = glm::vec3{floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0,
+                                             floor(modelio->voxelSize_XZY.z / 2.0+0.5)};;
+
+            float scale0 = 1;
+            float angle0 = 0;
+            glm::vec3 shift = glm::vec3(shift0) - glm::vec3(semiRange);  // (5,0,5)
+
+            //
+            glm::mat4 unit = glm::mat4(1.0f);
+            glm::vec3 scale = glm::vec3(scale0);
+            glm::mat4 angle = glm::rotate(unit, glm::radians(angle0), glm::vec3(0.0, 1.0, 0.0));
+            glm::mat4 mat = glm::scale(unit, scale) * glm::translate(unit, shift);
+
+            Instance instance1{};
+            instance1.meshId = static_cast<uint32_t>(n_modelmesh);
+            instance1.object2worldMatrix = mat;
+            instance1.world2objectMatrix = glm::transpose(glm::inverse(mat));
+            instanceio->instances.emplace_back(instance1);
+            // voxel Instance Link
+            InstanceLink instancelink1{};
+            instancelink1.meshId = instance1.meshId;
+            instanceio->instanceLinks.emplace_back(instancelink1);
+
+
+            int isValid = 0;
+
+            for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
+                // this is what we did in the shader;
+                // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
+                glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+                int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
+
+                // the first bufferid;
+
+                if (test < 0) {
+
+                    acc.setValue(nanovdb::Coord(Id.x, Id.y, Id.z), n_voxel);
+                    glm::ivec3 voxelPos = glm::ivec3(Id.x * 1.0, Id.y * 1.0, Id.z * 1.0);  //(5,0,5) with height = 0
+
+                    VoxelLink voxelLink{};
+                    voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                    voxelLink.instanceId = n_instance;
+                    voxelLink.aeroId = 0;
+                    voxelLink.faceId = 0; // center
+                    voxelLink.isValid = 1; // center
+                    modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+                    n_voxel++;
+                    isValid = 1;
+
+                }
+            }
+            if (isValid == 0) {
+                continue;
+            }
+
+            n_instance++;
+
+            //std::string info = "voxel entity " + std::to_string(kVoxelModel) + " done.\n";
+            //LOGI(info.c_str());
+            // float tt = acc.getValue(nanovdb::Coord(24, 0, 24));
+        }
+        n_modelmesh++;
+    }
+    return true;
+}
+
+bool Scene::createPrimObj_Building(PrimEntity & voxelEntity,nanovdb::GridBuilder<int32_t> &nanoBuilder, std::shared_ptr<HexrtIO> &modelio) {
+
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    VoxelDesigner loader;
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string modelName = voxelEntity.primitiveName;
+    Type type = voxelEntity.type;
+    Shape shape = voxelEntity.shape;
+    //meshio->types[0] = voxelEntity.types[0];
+    // std::string aeroName = voxelEntity.aeroNames[0];
+
+
+    PrimMesh currentVoxelModelXYZ1;
+    if (voxelEntity.isheightFromFile == 1) {
+        currentVoxelModelXYZ1 = loader.createTriEntitiesFromTif_wall(voxelEntity.heightfile, modelio->voxelSize_XZY,modelio->stepsize_height);
+    } else {
+        currentVoxelModelXYZ1 = loader.createTriCube_wall(shape, modelio->stepsize_surface);
+    }
+
+    PrimMesh currentVoxelModel1 = XYZ2XZY(currentVoxelModelXYZ1, 1); // (1,1,0) => (1,0,1) with  height = 0
+    currentVoxelModel1.meshId = n_modelmesh;
+    meshio->primMeshes.emplace_back(currentVoxelModel1); //xzy
+    std::string meshName1 = voxelEntity.meshNames[0];
+    std::string spectralName1 = voxelEntity.spectralNames[0];
+    std::string canopyName1 = voxelEntity.canopyNames[0];
+//    std::string propName1 = voxelEntity.propNames[0];
+    MeshLink meshlink1;
+    meshlink1.spectralId = meshio->spectralNames.find(spectralName1)->second;
+    meshlink1.thermalId = 0;
+    meshlink1.canopyId = meshio->canopyNames.find(canopyName1)->second;
+//    if (type == Type::VEGETATION) {
+//        // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+//        meshlink1.bioId = meshio->leafbioNames.find(propName1)->second;
+//    } else if (type == Type::SOIL || type == Type::BUILDING) {
+//        //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+//        meshlink1.bioId = meshio->soilsetNames.find(propName1)->second;
+//    }
+    //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+    meshlink1.type = (int) type;
+    meshio->meshLinks.emplace_back(meshlink1);
+
+    PrimMesh currentVoxelModel2{};
+    PrimMesh currentVoxelModelXYZ2;
+    if (voxelEntity.isheightFromFile == 1) {
+        currentVoxelModelXYZ2 = loader.createTriEntitiesFromTif_roof(voxelEntity.heightfile, modelio->voxelSize_XZY,modelio->stepsize_height);
+    } else {
+        currentVoxelModelXYZ2 = loader.createTriCube_roof(shape, modelio->stepsize_surface);
+    }
+
+    currentVoxelModel2 = XYZ2XZY(currentVoxelModelXYZ2, 1); // (1,1,0) => (1,0,1) with  height = 0
+    currentVoxelModel2.meshId = n_modelmesh + 1;
+    meshio->primMeshes.emplace_back(currentVoxelModel2); //xzy
+
+    /// ------------------------------------
+    /// voxel model/mesh
+    ///-------------------------------------
+    std::string meshName2 = voxelEntity.meshNames[1];
+    std::string spectralName2 = voxelEntity.spectralNames[1];
+    std::string canopyName2 = voxelEntity.canopyNames[1];
+//    std::string propName2 = voxelEntity.propNames[1];
+    MeshLink meshlink2;
+    meshlink2.spectralId = meshio->spectralNames.find(spectralName2)->second;
+    meshlink2.thermalId = 0;
+    meshlink2.canopyId = meshio->canopyNames.find(canopyName2)->second;
+//    if (type == Type::VEGETATION) {
+//        // meshlink1.leafbioId = meshio->leafbioNames.find(propName)->second;
+//        meshlink2.bioId = meshio->leafbioNames.find(propName2)->second;
+//    } else if (type == Type::SOIL || type == Type::BUILDING) {
+//        //  meshlink1.soilsetId = meshio->soilsetNames.find(propName)->second;
+//        meshlink2.bioId = meshio->soilsetNames.find(propName2)->second;
+//    }
+    //  meshlink1.aeroId = meshio->aeroNames.find(aeroName)->second;
+    meshlink2.type = (int) type;
+    meshio->meshLinks.emplace_back(meshlink2);
+
+
+    // instance
+
+    for (int kinstance = 0; kinstance < voxelEntity.primDistributions.size(); kinstance++) {
+        // voxel instance1��change postion,
+
+        glm::ivec3 shift0;
+        shift0 = {voxelEntity.primDistributions[kinstance].x / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].z / modelio->stepsize_surface,
+                  voxelEntity.primDistributions[kinstance].y / modelio->stepsize_surface};
+
+
+        ///-----------------------------------------------------------------------------
+        /// Attention!!!!
+        ///------------------------------------------------------------------------------
+        glm::ivec3 semiRange = glm::vec3{floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0,
+                                         floor(modelio->voxelSize_XZY.z / 2.0+0.5)};;
+
+        float scale0 = voxelEntity.scales[kinstance];
+        float angle0 = voxelEntity.rotations[kinstance];
+        glm::vec3 shift = glm::vec3(shift0) - glm::vec3(semiRange);  // (5,0,5)
+
+        //
+        glm::mat4 unit = glm::mat4(1.0f);
+        glm::vec3 scale = glm::vec3(scale0);
+        glm::mat4 angle = glm::rotate(unit, glm::radians(angle0), glm::vec3(0.0, 1.0, 0.0));
+        glm::mat4 mat = glm::scale(unit, scale) * glm::translate(unit, shift);
+
+        Instance instance1{};
+        instance1.meshId = static_cast<uint32_t>(n_modelmesh);
+        instance1.object2worldMatrix = mat;
+        instance1.world2objectMatrix = glm::transpose(glm::inverse(mat));
+        instanceio->instances.emplace_back(instance1);
+        // voxel Instance Link
+        InstanceLink instancelink1{};
+        instancelink1.meshId = instance1.meshId;
+        instanceio->instanceLinks.emplace_back(instancelink1);
+
+        Instance instance2{};
+        instance2.meshId = static_cast<uint32_t>(n_modelmesh + 1);
+        instance2.object2worldMatrix = mat;
+        instance2.world2objectMatrix = glm::transpose(glm::inverse(mat));
+        instanceio->instances.emplace_back(instance2);
+        // voxel Instance Link
+        InstanceLink instancelink2{};
+        instancelink2.meshId = instance2.meshId;
+        instanceio->instanceLinks.emplace_back(instancelink2);
+
+
+        int isValid = 0;
+        if ((voxelEntity.meshNames.size() == 2) && (voxelEntity.type == Type::BUILDING)) {
+
+            for (int kvoxel = 0; kvoxel < currentVoxelModel1.voxelIds.size(); kvoxel++) {
+                // this is what we did in the shader;
+                // glm::ivec3 pos =  mat * glm::vec4(currentVoxelModel.voxelIds[kvoxel],1.0);
+                glm::ivec3 Id = shift0 + glm::ivec3(currentVoxelModel1.voxelIds[kvoxel]);
+                int test = acc.getValue(nanovdb::Coord(Id.x, Id.y, Id.z));
+
+                // the first bufferid;
+
+                if (test < 0) {
+                    ///-----------------------------------------------------------------------------
+                    /// Attention!!!! only the first buffer is collected.
+                    ///------------------------------------------------------------------------------
+
+                    acc.setValue(nanovdb::Coord(Id.x, Id.y, Id.z), n_voxel);
+                    glm::ivec3 voxelPos = glm::ivec3(Id.x * 1.0, Id.y * 1.0, Id.z * 1.0);  //(5,0,5) with height = 0
+
+
+                    for (int kf = 0; kf < 4; kf++) {
+                        VoxelLink voxelLink{};
+                        voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                        voxelLink.instanceId = n_instance;
+                        voxelLink.aeroId = 0;
+                        voxelLink.faceId = kf+1; // center
+                        voxelLink.isValid = currentVoxelModel1.isValids[kvoxel].values[kf]; // center
+                        modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+
+                        n_voxel++;
+                        isValid = 1;
+                    }
+
+                    for (int kf = 4; kf < 5; kf++) {
+                        VoxelLink voxelLink{};
+                        voxelLink.voxelId = voxelPos;          //(5,0,5) with height = 0
+                        voxelLink.instanceId = n_instance + 1;
+                        voxelLink.aeroId = 0;
+                        voxelLink.faceId = kf+1; // center
+                        voxelLink.isValid = currentVoxelModel1.isValids[kvoxel].values[kf];
+                        modelio->m_voxelio->voxellinks.emplace_back(voxelLink);
+
+                        n_voxel++;
+                        isValid = 1;
+                    }
+
+
+                }
+
+            }
+
+            if (isValid == 0) {
+                continue;
+            }
+
+
+            if (voxelEntity.meshNames.size() == 2) {
+                n_instance = n_instance + 2;
+            } else {
+                n_instance++;
+            }
+
+        }
+
+
+        if (voxelEntity.meshNames.size() == 2) {
+            n_modelmesh = n_modelmesh + 2;
+        } else {
+            n_modelmesh++;
+        }
+        //std::string info = "voxel entity " + std::to_string(kVoxelModel) + " done.\n";
+        //LOGI(info.c_str());
+        // float tt = acc.getValue(nanovdb::Coord(24, 0, 24));
+    }
+    return true;
+}
+
+bool Scene::createPrimObj_Background(Background & background,nanovdb::GridBuilder<int32_t> &nanoBuilder, std::shared_ptr<HexrtIO> &modelio){
+
+    auto acc = nanoBuilder.getAccessor();
+    auto &meshio = modelio->m_meshio;
+    auto &instanceio = modelio->m_instanceio;
+    auto &voxelio = modelio->m_voxelio;
+    auto &surfio = modelio->m_surfio;
+
+
+    modelio->sceneSize_XYZ =  background.sceneSize;
+    modelio->sceneOrigin_XYZ = background.sceneOrigin;
+    modelio->voxelSize_XZY = glm::ivec3(
+        centeredGridCellCount(background.sceneSize.x, background.stepsize_surface),
+        0,
+        centeredGridCellCount(background.sceneSize.y, background.stepsize_surface));
+    modelio->voxelOrigin_XZY = glm::ivec3(background.sceneOrigin.x / background.stepsize_surface,
+                                          0,
+                                          background.sceneOrigin.y / background.stepsize_surface);
+
+    modelio->stepsize_surface = background.stepsize_surface;
+    modelio->stepsize_height = background.stepsize_height;
+    modelio->lat = background.lat;
+    modelio->lon = background.lon;
+//    modelio->stepsize_surface = 1.0;
+    //modelio->n_surface = modelio->voxelSize_XZY.x * modelio->voxelSize_XZY.y;
+
+    ///----------------------------------------------------------------
+    /// From now on, using voxel space
+    ///----------------------------------------------------------------
+
+    int &n_modelmesh = modelio->n_modelmesh;
+    int &n_instance = modelio->n_instance;
+    int &n_voxel = modelio->n_voxel;
+
+    /// ------------------------------------
+    /// BACKGROUND mesh
+    ///-------------------------------------
+
+    VoxelDesigner loader;
+    PrimMesh bgModelXYZ;
+    if ((background.isDEM == true) && (background.DEMFile != "")) {
+        std::cout<<("----------------error--------------------");
+    } else {
+        bgModelXYZ = loader.createTriBackground(modelio->voxelSize_XZY.x * background.stepsize_surface, modelio->voxelSize_XZY.z * background.stepsize_surface, background.stepsize_surface);
+    }
+
+
+    bgModelXYZ.meshId = n_modelmesh;
+    PrimMesh bgModel = XYZ2XZY(bgModelXYZ);
+    meshio->primMeshes.emplace_back(bgModel);
+
+    // background model link
+    MeshLink bgMeshLink;
+    std::string bgThermalName = background.bgThermalName;
+    bgMeshLink.thermalId =  meshio->thermalNames.find(bgThermalName)->second;
+    bgMeshLink.canopyId = 0;
+    std::string bgSpectralName = background.bgSpectralName;
+    bgMeshLink.spectralId = meshio->spectralNames.find(bgSpectralName)->second;
+//    std::string bgThermalName;
+//    int bgThermalIndex = 0;
+//    if (fileio->m_pVoxelebXml->sensorxml.isTemperature == true)
+//    {
+//        bgThermalName = scenexml.background.bgThermalName;
+//        bgThermalIndex = meshio->thermalNames.find(bgThermalName)->second;
+//    }
+
+    int bgCanopyindex = 0;
+    //  std::string bgCanopyName = scenexml.background.canopyName;
+    //  bgMeshLink.canopyId = meshio->canopyNames.find(bgCanopyName)->second;
+    int bgPropIndex = 0;
+    std::string bgPropName = background.bgPropName;
+    //bgPropIndex = meshio->soilsetNames.find(bgPropName)->second;
+    //bgMeshLink.bioId = bgPropIndex;
+    bgMeshLink.type = (int) Type::SOIL;
+    meshio->meshLinks.emplace_back(bgMeshLink);
+
+    /// ------------------------------------
+    /// BACKGROUND instance
+    /// Voxelsize is XZY
+    /// iN cg space: (voxelsize.x - voxelsize.x/2, voxelsize.y, voxelsize.z - voxelsize.z/2)
+    ///-------------------------------------
+    Instance bgInstance{};
+    bgInstance.meshId = static_cast<uint32_t>(n_modelmesh);
+    glm::mat4 bgunit = glm::mat4(1.0f);
+    // here for 0-9 will become -5 - 4
+    glm::vec3 bgShift = glm::vec3{-floor(modelio->voxelSize_XZY.x / 2.0+0.5), 0 - loader.minElevation,
+                                  -floor(modelio->voxelSize_XZY.z / 2.0+0.5)};
+
+//    glm::vec3 bgShift = glm::vec3{0,0,0};
+
+    glm::vec3 bgScale = glm::vec3{1.0, 1.0, 1.0};
+    glm::mat4 bgMat = glm::scale(bgunit, bgScale) * glm::translate(bgunit, bgShift);
+    bgInstance.object2worldMatrix = bgMat;
+    bgInstance.world2objectMatrix = glm::transpose(glm::inverse(bgMat));
+    instanceio->instances.emplace_back(bgInstance);
+
+
+    // background instanceLink
+    InstanceLink bgInstanceLink{};
+    bgInstanceLink.meshId = bgInstance.meshId;
+    instanceio->instanceLinks.emplace_back(bgInstanceLink);
+
+    //--------------------------------------------
+    // background voxelLink
+    //--------------------------------------------
+    for (int kvoxel = 0; kvoxel < bgModel.voxelIds.size(); kvoxel++) {
+        glm::ivec3 voxelId = glm::ivec3(bgModel.voxelIds[kvoxel]);// + nvmath::vec3i(bgShift);
+        int test = acc.getValue(nanovdb::Coord(voxelId.x, voxelId.y, voxelId.z)); //(1,0,1)
+
+        if (test < 0) {
+            acc.setValue(nanovdb::Coord(voxelId.x, voxelId.y, voxelId.z), n_voxel);
+            VoxelLink voxellink{};
+            glm::ivec3 voxelId_ = glm::ivec3(voxelId.x * 1.0, voxelId.y * 1.0, voxelId.z * 1.0);
+            voxellink.voxelId = voxelId_;
+            voxellink.instanceId = n_instance;
+            voxellink.faceId = 5;
+            voxellink.isValid = 1;
+            voxellink.aeroId = 0;
+
+            voxelio->voxellinks.emplace_back(voxellink);
+            n_voxel++;
+        }
+    }
+    n_instance++;
+    n_modelmesh++;
+
+
+    if(background.isLad==true){
+        // read lad tif
+        int width = 0,height = 0, nband = 1;
+        Utils::readImageinout1(background.ladfile,surfio->lads,width, height,nband);
+    }else{
+        surfio->lads.emplace_back(0);
+    }
+
+    /// ------------------------------------
+    ///  Divided  Background, Need to be provided
+    ///-------------------------------------
+
+    /// ------------------------------------
+    ///  Divided  Background, Need to be provided
+    ///-------------------------------------
+
+    return true;
+}

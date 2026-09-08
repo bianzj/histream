@@ -369,6 +369,55 @@ int SurfFlatten(ivec3 voxelId, ivec3 voxelRes)
     return surf1DId;
 };
 
+#if defined(VOXELRT) || defined(VOXELLST) || defined(HEXRT) || defined(HEXEB)
+// 混浊介质体密度优先级：OBJ 三维 rho > LiDAR 二维 rho > canopy density。
+float ResolveTurbidDensity(int bufferId, uint canopyId, ivec3 voxelId, ivec3 voxelRes)
+{
+    int mediumId = voxelLinks[bufferId].hexId;
+    if (mediumId >= 0) {
+        return max(voxelHexs[mediumId].rho, 0.0);
+    }
+    if (setting.islad >= 1) {
+        return max(lads[SurfFlatten(voxelId, voxelRes)], 0.0);
+    }
+    return max(canopies[canopyId].density, 0.0);
+}
+
+// Voxel 假设 CIx=CIy=CIz=1；Hex 使用 OBJ 提取的三轴 CI。
+// 世界坐标严格对应 ax->X、ay->Y(竖直)、az->Z；CI 不限制上限。
+float ResolveClumpingIndex(int bufferId, vec3 direction)
+{
+#if defined(HEXRT) || defined(HEXEB)
+    int mediumId = voxelLinks[bufferId].hexId;
+    if (mediumId >= 0) {
+        VoxelHex medium = voxelHexs[mediumId];
+        float directionLength2 = dot(direction, direction);
+        if (directionLength2 <= 1.0e-12) {
+            return 1.0;
+        }
+        vec3 d = abs(direction) * inversesqrt(directionLength2);
+        float weight = d.x + d.y + d.z;
+        float ci = dot(d, vec3(medium.ax, medium.ay, medium.az))
+                 / max(weight, 1.0e-6);
+        return max(ci, 0.0);
+    }
+#endif
+    return 1.0;
+}
+
+// 返回 x=透过率、y=拦截率。消光、拦截和后续辐射贡献共用 rho*G*CI(direction)。
+vec2 ResolveTurbidInteraction(
+    int bufferId, float density, float G, vec3 direction,
+    float pathLength, float sceneScale)
+{
+    float ci = ResolveClumpingIndex(bufferId, direction);
+    float opticalDepth = max(density, 0.0) * max(G, 0.0) * ci
+                       * max(pathLength, 0.0) * max(sceneScale, 0.0);
+    float transmission = exp(-opticalDepth);
+    return vec2(transmission, 1.0 - transmission);
+}
+#endif
+
 // uint SurfFlatten(ivec3 voxelId, ivec3 voxelRes)
 // {
 //     uint surf1DId = voxelId.x*voxelRes.z + voxelId.z ;

@@ -36,7 +36,6 @@ ShadowHitPayload shadow_payload;
 #include "../traceray_comp.glsl"
 
 layout(local_size_x = GROUP_SIZEXY, local_size_y = GROUP_SIZEXY) in;
-#define MAXSTEP   100
 // #define DIFFUSE_ANGLE_NUM 32
 #define MAXBAND    25
 // #define NUM_VNIR 2001
@@ -53,6 +52,8 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
     float alpha_toSolar, alpha_voxel;
     float density,G,lai;
     int n_wave= setting.n_wave;
+    int bandCount = min(setting.n_wave, MAXBAND);
+    bool validHit = false;
     vec3 ffnormal;
     ivec3 voxelId;
     int bufferId,alignBufferId;
@@ -71,14 +72,14 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
     phase = clamp(phase,0,1);
     ivec3 voxelRes = ivec3(setting.voxelSize);
 
-    for(int kwave =0;kwave<setting.n_wave;kwave++){
+    for(int kwave =0;kwave<bandCount;kwave++){
         Radiance[kwave] = 0;
     }
     
     for(int kstep = 0;kstep<=setting.maxStep;kstep++)
     {
         alpha_voxel = 1.0;
-        ClosestHit(ray);
+        ClosestHit(ray, 0.001);
 
         ///////////////////////////////////////////////////
 		/// sky case (sky -> sensor).
@@ -87,11 +88,10 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 		///////////////////////////////////////////////////
         if(prd.hitT == INFINITY)
         {
-            for(int kwave =0;kwave<setting.n_wave;kwave++){
-                Radiance[kwave] += 0;
-            }
-            return true;
+            // Rays outside the finite scene are invalid samples.
+            return false;
         }
+        validHit = true;
 
         ///////////////////////////////////////////////////
 		/// Turbid or facet ground case (j -> sensor).
@@ -116,7 +116,6 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 			canopy = canopies[canopyId];
 
             uint spectralBase = spectralId * n_wave;
-            float envTemp = Inv_Stefen_Boltzmann(voxelNetRads[bufferId].diffuseTrad, 1);
 
             // LST = voxelNetRads[bufferId].diffuseVrad;
             // LST = voxelHeatFlux[bufferId].Gshaded;
@@ -136,18 +135,39 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 			{
                 G = canopies[canopyId].G;
                 lai = canopies[canopyId].lai;
-                // density determined by mesh/isntance or pixel scale?
-                if(setting.islad < 1){
-                    density = canopies[canopyId].density;
-                }else{         
-                    uint surf1DId = SurfFlatten(voxelId, voxelRes);
-                    density = lads[surf1DId]; 
-                }
+                density = isParticipatingMedium(canopy) ? canopy.density
+                    : ResolveTurbidDensity(bufferId, canopyId, voxelId, voxelRes);
 				float pathLength = Vector2Distance(sstate.position - sstate.lastPosition);// * 0.2; //!!!!需要改回去！！！
-                alpha_voxel = exp(-density * G * pathLength * scale);
+                alpha_voxel = canopyVoxelTransmittance(canopy, density, G, pathLength, scale);
 				alpha_toSolar = voxelDirs[bufferId].solar;
 
 				if(alpha_toSensor < 0.001) break;
+				if(isParticipatingMedium(canopy))
+				{
+					float removedFraction = 1.0 - alpha_voxel;
+					float scatteringFraction = removedFraction * clamp(canopy.scatteringAlbedo, 0.0, 1.0);
+					float absorptionFraction = removedFraction - scatteringFraction;
+					float mediumTemperature = canopy.fixedTemperature > 0.0
+						? canopy.fixedTemperature
+						: 0.5 * (thermalMaterials[thermalId].sunlitTemperature + thermalMaterials[thermalId].shadedTemperature);
+					float scatteringPhase = mediumPhaseHG(canopy,
+						dot(normalize(lightSet.direction), normalize(ray.direction)));
+					for(int kwave = 0; kwave < bandCount; ++kwave)
+					{
+						float wavelength = wave[kwave];
+						uint environmentIndex = uint(bufferId) * DIFFUSE_ANGLE_NUM + uint(kwave);
+						float environmentRadiance = voxelRads[environmentIndex].cumulated;
+						Radiance[kwave] += Planck(wavelength, mediumTemperature)
+							* canopy.emissionScale * absorptionFraction * alpha_toSensor;
+						Radiance[kwave] += environmentRadiance * scatteringFraction
+							* 0.0795774715 * alpha_toSensor;
+						float cosSolarZenith = max(normalize(lightSet.direction).y, 0.0);
+						Radiance[kwave] += lightSet.direct * cosSolarZenith * alpha_toSolar
+							* scatteringFraction * scatteringPhase * alpha_toSensor;
+					}
+					alpha_toSensor *= alpha_voxel;
+					continue;
+				}
 				// this is used for the hotspot effect
 				if(alpha_toSolar < 0.0001) pl_toSolar = 10000.0;
 				else pl_toSolar = -log(alpha_toSolar) / G / DENSITY;
@@ -171,8 +191,12 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
                 // get sunlit and shaded fraction and mixed them for an average result.
                 float sunlitTemperature = thermalMaterials[thermalId].sunlitTemperature;
                 float shadedTemperature = thermalMaterials[thermalId].shadedTemperature;
-                for(int kwave=0;kwave<n_wave;kwave++){
+                for(int kwave=0;kwave<bandCount;kwave++){
                     float wavelength = wave[kwave];
+                    uint environmentIndex =
+                        uint(bufferId) * DIFFUSE_ANGLE_NUM + uint(kwave);
+                    float environmentRadiance =
+                        voxelRads[environmentIndex].cumulated;
                     float refl = spectralMaterials[spectralBase + kwave].reflectance;
                     float trans = spectralMaterials[spectralBase + kwave].transmittance;
                     // hot spot
@@ -194,8 +218,8 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 
 // Radiance[kwave] = thermalRadiance;
 // return true;
-                    // LST += Planck(wavelength, envTemp) * (1 - alpha_voxel) * (refl) * alpha_toSensor;
-                    Radiance[kwave] += Planck(wavelength, envTemp) * (1 - alpha_voxel) * (s) * alpha_toSensor;
+                    Radiance[kwave] += environmentRadiance *
+                        (1 - alpha_voxel) * s * alpha_toSensor;
             // Radiance[0] += 3;
             // return true;
                 }
@@ -216,7 +240,6 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 			canopy = canopies[canopyId];
 
             uint spectralBase = spectralId * n_wave;
-            float envTemp = Inv_Stefen_Boltzmann(voxelNetRads[alignBufferId].diffuseTrad, 1);
 
             if((typeId == TYPE_BUILDING) || (typeId == TYPE_SOIL)){
 // for(int kwave=0;kwave<setting.n_wave;kwave++){
@@ -271,8 +294,12 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
                  // get sunlit and shaded fraction and mixed them for an average result.
                 float sunlitTemperature = thermalMaterials[thermalId].sunlitTemperature;
                 float shadedTemperature = thermalMaterials[thermalId].shadedTemperature;
-                for(int kwave=0;kwave<setting.n_wave;kwave++){
+                for(int kwave=0;kwave<bandCount;kwave++){
                     float wavelength = wave[kwave];
+                    uint environmentIndex =
+                        uint(alignBufferId) * DIFFUSE_ANGLE_NUM + uint(kwave);
+                    float environmentRadiance =
+                        voxelRads[environmentIndex].cumulated;
                     float refl = spectralMaterials[spectralBase + kwave].reflectance;
                     float trans = spectralMaterials[spectralBase + kwave].transmittance;
                     // hot spot
@@ -288,8 +315,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 // return true;
                                     
                     Radiance[kwave] += radianceDirect; // debug
-                    Radiance[kwave] += Planck(wavelength, envTemp)  * (refl) * alpha_toSensor;
-                    // Radiance[kwave] += Planck(wavelength, envTemp) * (1 - alpha_voxel) * (s) * alpha_toSensor;
+                    Radiance[kwave] += environmentRadiance * refl * alpha_toSensor;
 
             // Radiance[0] += thermalRadiance;
             // return true;
@@ -305,10 +331,11 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 		ray = Ray(sstate.position, ray.direction);
 		ffnormal = sstate.normal;
 		ray.origin = OffsetRay(ray.origin, dot(ray.direction, ffnormal) > 0 ? ffnormal : -ffnormal);
-    }
+	    }
+    return validHit;
 }
 
-void SamplePixel(vec2 imageCoords,vec2 sizeImage,int smpl)
+bool SamplePixel(vec2 imageCoords,vec2 sizeImage,int smpl)
 {
    
     // 每次光线的随机/波动进行光滑
@@ -339,7 +366,7 @@ void SamplePixel(vec2 imageCoords,vec2 sizeImage,int smpl)
     vec3 directionv = normalize(direction.xyz);
 	Ray ray = Ray(origin.xyz, directionv);
 
-    Voxel_raytracing(ray, nanoVDBLink);
+    return Voxel_raytracing(ray, nanoVDBLink);
 }
 
 
@@ -347,12 +374,14 @@ void main()
 {
     // image imageSize
 	ivec2 imageRes    = ivec2(setting.imageSize);
+    int bandCount = min(setting.n_wave, MAXBAND);
     // image coordinate from 1-imageSize
     ivec2 imageCoords = ivec2(gl_GlobalInvocationID.xy);  //SampleSizzled();
+    if(any(greaterThanEqual(imageCoords, setting.imageSize))) return;
     uint n_pixel = imageRes.x * imageRes.y;
     uint temp = uint(setting.imageSize.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x);
     prd.seed = tea(temp, setting.frame * setting.n_sample);
-    for(int kwave = 0;kwave < setting.n_wave; kwave++){
+    for(int kwave = 0;kwave < bandCount; kwave++){
         RadianceSum[kwave] = 0;
     }
 
@@ -361,17 +390,22 @@ void main()
     // atomicStore(outImage[bufferId], LST, gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
 
 
+    int validSampleCount = 0;
     for(int smpl = 0; smpl< setting.n_sample; smpl++)
     {
-        SamplePixel(imageCoords, imageRes, smpl);
-        for(int kwave = 0;kwave < setting.n_wave; kwave++){
-            RadianceSum[kwave] = RadianceSum[kwave] + Radiance[kwave];
+        if(SamplePixel(imageCoords, imageRes, smpl))
+        {
+            validSampleCount++;
+            for(int kwave = 0;kwave < bandCount; kwave++){
+                RadianceSum[kwave] += Radiance[kwave];
+            }
         }
-
     }
 
-    for(int kwave = 0;kwave < setting.n_wave; kwave++){
-        Radiance[kwave] = RadianceSum[kwave]/setting.n_sample;
+    for(int kwave = 0;kwave < bandCount; kwave++){
+        Radiance[kwave] = validSampleCount > 0
+            ? RadianceSum[kwave] / float(validSampleCount)
+            : 0.0;
         int bufferId = int((n_pixel * kwave) + (imageCoords.y * imageRes.x + imageCoords.x ));
         atomicStore(outImage[bufferId], Radiance[kwave], gl_ScopeDevice, gl_StorageSemanticsBuffer, gl_SemanticsRelease);
         // float test = 10;

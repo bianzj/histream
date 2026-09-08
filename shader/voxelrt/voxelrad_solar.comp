@@ -35,7 +35,6 @@ ShadowHitPayload shadow_payload;
 #include "../traceray_comp.glsl"
 
 layout(local_size_x = GROUP_SIZEX) in;
-#define MAXSTEP   100
 // #define DIFFUSE_ANGLE_NUM 32
 #define MAXBAND    25
 #define NUM_VNIR 2001 
@@ -121,15 +120,9 @@ bool TraversalDirection(vec3 lightDirection)
             canopyId = meshLinks[meshId].canopyId;
             if(abs(float(typeId - TYPE_VEGETATION))<0.1){
                 G = canopies[canopyId].G;
-                // density determined by mesh/isntance or pixel scale?
-                if(setting.islad < 1){
-                    density = canopies[canopyId].density;
-                }else{         
-                    uint surf1DId = SurfFlatten(voxelId, voxelRes);
-                    density = lads[surf1DId]; 
-                }
+                density = ResolveTurbidDensity(bufferId, canopyId, voxelId, voxelRes);
                 float pathLength = Vector2Distance(sstate.position - sstate.lastPosition);
-                 alpha_voxel = exp(-density * G * pathLength * scale);
+                 alpha_voxel = canopyVoxelTransmittance(canopies[canopyId], density, G, pathLength, scale);
             }   
         }
         //--------------------------------

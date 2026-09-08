@@ -31,7 +31,7 @@ public:
 //                VkPipeline pipeline, VoxelLstSetting setting,
 //                const std::optional<VkSemaphore> &inSemaphore, const std::optional<VkSemaphore> &outSemaphore);
 
-    void Command::recordCommandBuffer(VkCommandBuffer cmdBuf,
+    void recordCommandBuffer(VkCommandBuffer cmdBuf,
                                       VkDescriptorSet descSet, VkPipelineLayout pipelineLayout,
                                       VkPipeline pipeline,  VoxelLstSetting setting);
 

@@ -43,6 +43,7 @@ public:
         state,
         lad,
         waterSet,
+        medium, // 混浊介质 (CIx, CIy, CIz, rho)
     };
 
 

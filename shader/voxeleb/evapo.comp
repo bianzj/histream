@@ -61,6 +61,15 @@ void main()
     canopyId = meshLink.canopyId;
     bioId = meshLink.bioId;
     typeId = meshLink.type;
+    if(typeId == TYPE_VEGETATION && isParticipatingMedium(canopies[canopyId])) {
+        voxelHeatFlux[bufferId].Hsunlit = 0.0;
+        voxelHeatFlux[bufferId].Hshaded = 0.0;
+        voxelHeatFlux[bufferId].LEsunlit = 0.0;
+        voxelHeatFlux[bufferId].LEshaded = 0.0;
+        voxelHeatFlux[bufferId].Gsunlit = 0.0;
+        voxelHeatFlux[bufferId].Gshaded = 0.0;
+        return;
+    }
     //-------------------------
     // various parameters
     //-------------------------

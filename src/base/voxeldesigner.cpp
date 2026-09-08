@@ -126,24 +126,48 @@ PrimMesh VoxelDesigner::createTriVoxels(const std::vector<glm::ivec3>& voxelIds)
         }
     };
 
+    auto hasVoxel = [&voxelIds](int x, int y, int z) {
+        for (const glm::ivec3& candidate : voxelIds) {
+            if (candidate.x == x && candidate.y == y && candidate.z == z) return true;
+        }
+        return false;
+    };
+
     glm::vec3 centerSum(0.0f);
     for (const glm::ivec3& id : voxelIds) {
-        const glm::vec3 base(id);
-        const float x = base.x;
-        const float y = base.y;
-        const float z = base.z;
+        const float x = static_cast<float>(id.x);
+        const float y = static_cast<float>(id.y);
+        const float z = static_cast<float>(id.z);
 
-        appendQuad({x, y, z + 0.5f}, {x + 1.0f, y, z + 0.5f},
-                   {x + 1.0f, y + 1.0f, z + 0.5f}, {x, y + 1.0f, z + 0.5f});
-        appendQuad({x + 0.5f, y, z}, {x + 0.5f, y + 1.0f, z},
-                   {x + 0.5f, y + 1.0f, z + 1.0f}, {x + 0.5f, y, z + 1.0f});
-        appendQuad({x, y + 0.5f, z}, {x, y + 0.5f, z + 1.0f},
-                   {x + 1.0f, y + 0.5f, z + 1.0f}, {x + 1.0f, y + 0.5f, z});
+        // Integer cell boundaries are required by getVoxelIdSemi().  Minimum
+        // faces also provide interfaces to negative neighbours.  A positive
+        // face is emitted only at the outer boundary; otherwise the positive
+        // neighbour owns the shared interface as its minimum face.
+        appendQuad({x, y, z}, {x, y + 1.0f, z},
+                   {x, y + 1.0f, z + 1.0f}, {x, y, z + 1.0f});
+        if (!hasVoxel(id.x + 1, id.y, id.z)) {
+            appendQuad({x + 1.0f, y, z}, {x + 1.0f, y, z + 1.0f},
+                       {x + 1.0f, y + 1.0f, z + 1.0f}, {x + 1.0f, y + 1.0f, z});
+        }
+
+        appendQuad({x, y, z}, {x + 1.0f, y, z},
+                   {x + 1.0f, y, z + 1.0f}, {x, y, z + 1.0f});
+        if (!hasVoxel(id.x, id.y + 1, id.z)) {
+            appendQuad({x, y + 1.0f, z}, {x, y + 1.0f, z + 1.0f},
+                       {x + 1.0f, y + 1.0f, z + 1.0f}, {x + 1.0f, y + 1.0f, z});
+        }
+
+        appendQuad({x, y, z}, {x, y, z + 1.0f},
+                   {x + 1.0f, y, z + 1.0f}, {x + 1.0f, y, z});
+        if (!hasVoxel(id.x, id.y, id.z + 1)) {
+            appendQuad({x, y, z + 1.0f}, {x + 1.0f, y, z + 1.0f},
+                       {x + 1.0f, y + 1.0f, z + 1.0f}, {x, y + 1.0f, z + 1.0f});
+        }
 
         mesh.voxelIds.emplace_back(id);
         mesh.isValids.emplace_back(int5{1, 1, 1, 1, 1});
         mesh.faceIds.emplace_back(0);
-        centerSum += base + glm::vec3(0.5f);
+        centerSum += glm::vec3(id) + glm::vec3(0.5f);
     }
 
     mesh.nVertices = static_cast<uint32_t>(mesh.vertices.size());
@@ -152,7 +176,6 @@ PrimMesh VoxelDesigner::createTriVoxels(const std::vector<glm::ivec3>& voxelIds)
                                       : centerSum / static_cast<float>(voxelIds.size());
     return mesh;
 }
-
 PrimMesh VoxelDesigner::createTriCube(Shape shape, float stepSize)
 {
     PrimMesh voxelTriModel;
@@ -1224,7 +1247,7 @@ PrimMesh VoxelDesigner::createTriEntitiesFromTif(std::string heightPath, float s
     int nImgSizeX = heightDataset->GetRasterXSize();
     int nImgSizeY = heightDataset->GetRasterYSize();
     int bandcount = heightDataset->GetRasterCount();
-    FLOAT* heightScanline = new FLOAT[nImgSizeX * nImgSizeY];
+    float* heightScanline = new float[nImgSizeX * nImgSizeY];
     heightDataset->RasterIO(GF_Read, 0, 0, nImgSizeX, nImgSizeY, heightScanline, nImgSizeX, nImgSizeY, GDT_Float32, bandcount, 0, 0, 0, 0);
 
 
@@ -1250,7 +1273,7 @@ PrimMesh VoxelDesigner::createTriEntitiesFromTif(std::string heightPath, float s
      *      y
      */
 
-    FLOAT* minReHeightScanline = new FLOAT[nImgSizeX * nImgSizeY];
+    float* minReHeightScanline = new float[nImgSizeX * nImgSizeY];
 
     float minReHeight, rightReHeight, leftReHeight, upReHeight, downReHeight;
     for (int i = 1; i < nImgSizeX - 1; i++)
@@ -1454,7 +1477,7 @@ PrimMesh VoxelDesigner::createTriEntitiesFromTif_roof(std::string heightPath, gl
 //    int nImgSizeX = heightDataset->GetRasterXSize();
 //    int nImgSizeY = heightDataset->GetRasterYSize();
 //    int bandcount = heightDataset->GetRasterCount();
-//    FLOAT* heightScanline = new FLOAT[nImgSizeX * nImgSizeY];
+//    float* heightScanline = new float[nImgSizeX * nImgSizeY];
 //    heightDataset->RasterIO(GF_Read, 0, 0, nImgSizeX, nImgSizeY, heightScanline, nImgSizeX, nImgSizeY, GDT_Float32, bandcount, 0, 0, 0, 0);
 
     std::vector<float> heightScanline0;
@@ -1494,7 +1517,7 @@ PrimMesh VoxelDesigner::createTriEntitiesFromTif_roof(std::string heightPath, gl
      *      y
      */
 
-    FLOAT* minReHeightScanline = new FLOAT[nImgSizeX * nImgSizeY];
+    float* minReHeightScanline = new float[nImgSizeX * nImgSizeY];
 
     float minReHeight, rightReHeight, leftReHeight, upReHeight, downReHeight;
     for (int i = 1; i < nImgSizeX - 1; i++)
@@ -1613,7 +1636,7 @@ PrimMesh VoxelDesigner::createTriEntitiesFromTif_wall(std::string heightPath, gl
 //    int nImgSizeX = heightDataset->GetRasterXSize();
 //    int nImgSizeY = heightDataset->GetRasterYSize();
 //    int bandcount = heightDataset->GetRasterCount();
-//    FLOAT* heightScanline = new FLOAT[nImgSizeX * nImgSizeY];
+//    float* heightScanline = new float[nImgSizeX * nImgSizeY];
 //    heightDataset->RasterIO(GF_Read, 0, 0, nImgSizeX, nImgSizeY, heightScanline, nImgSizeX, nImgSizeY, GDT_Float32, bandcount, 0, 0, 0, 0);
 
 
@@ -1656,7 +1679,7 @@ PrimMesh VoxelDesigner::createTriEntitiesFromTif_wall(std::string heightPath, gl
      *      y
      */
 
-    FLOAT* minReHeightScanline = new FLOAT[nImgSizeX * nImgSizeY];
+    float* minReHeightScanline = new float[nImgSizeX * nImgSizeY];
 
     float minReHeight, rightReHeight, leftReHeight, upReHeight, downReHeight;
     for (int i = 1; i < nImgSizeX - 1; i++)

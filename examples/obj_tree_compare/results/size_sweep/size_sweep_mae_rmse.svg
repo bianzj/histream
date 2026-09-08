@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="460" viewBox="0 0 980 460">
+<rect width="100%" height="100%" fill="white"/>
+<style>text{font-family:Arial,sans-serif;fill:#222}.axis{stroke:#333;stroke-width:1}.grid{stroke:#ddd;stroke-width:1}.voxel{stroke:#d1495b;fill:none;stroke-width:3}.hex{stroke:#0077b6;fill:none;stroke-width:3}.point-voxel{fill:#d1495b}.point-hex{fill:#0077b6}</style>
+<text x="490" y="27" text-anchor="middle" font-size="19">VZA=0°: voxel-size sensitivity relative to facet reference</text>
+<text x="265.0" y="50" text-anchor="middle" font-size="16">MAE</text>
+<line class="grid" x1="70" y1="362.00" x2="460" y2="362.00"/>
+<text x="61" y="366.00" text-anchor="end" font-size="11">0.000</text>
+<line class="grid" x1="70" y1="302.00" x2="460" y2="302.00"/>
+<text x="61" y="306.00" text-anchor="end" font-size="11">0.003</text>
+<line class="grid" x1="70" y1="242.00" x2="460" y2="242.00"/>
+<text x="61" y="246.00" text-anchor="end" font-size="11">0.005</text>
+<line class="grid" x1="70" y1="182.00" x2="460" y2="182.00"/>
+<text x="61" y="186.00" text-anchor="end" font-size="11">0.008</text>
+<line class="grid" x1="70" y1="122.00" x2="460" y2="122.00"/>
+<text x="61" y="126.00" text-anchor="end" font-size="11">0.011</text>
+<line class="grid" x1="70" y1="62.00" x2="460" y2="62.00"/>
+<text x="61" y="66.00" text-anchor="end" font-size="11">0.013</text>
+<line class="grid" x1="70.00" y1="62" x2="70.00" y2="362"/>
+<text x="70.00" y="382" text-anchor="middle" font-size="11">0.1</text>
+<line class="grid" x1="166.87" y1="62" x2="166.87" y2="362"/>
+<text x="166.87" y="382" text-anchor="middle" font-size="11">0.25</text>
+<line class="grid" x1="240.15" y1="62" x2="240.15" y2="362"/>
+<text x="240.15" y="382" text-anchor="middle" font-size="11">0.5</text>
+<line class="grid" x1="283.02" y1="62" x2="283.02" y2="362"/>
+<text x="283.02" y="382" text-anchor="middle" font-size="11">0.75</text>
+<line class="grid" x1="313.44" y1="62" x2="313.44" y2="362"/>
+<text x="313.44" y="382" text-anchor="middle" font-size="11">1</text>
+<line class="grid" x1="356.30" y1="62" x2="356.30" y2="362"/>
+<text x="356.30" y="382" text-anchor="middle" font-size="11">1.5</text>
+<line class="grid" x1="386.72" y1="62" x2="386.72" y2="362"/>
+<text x="386.72" y="382" text-anchor="middle" font-size="11">2</text>
+<line class="grid" x1="410.31" y1="62" x2="410.31" y2="362"/>
+<text x="410.31" y="382" text-anchor="middle" font-size="11">2.5</text>
+<line class="grid" x1="429.59" y1="62" x2="429.59" y2="362"/>
+<text x="429.59" y="382" text-anchor="middle" font-size="11">3</text>
+<line class="grid" x1="460.00" y1="62" x2="460.00" y2="362"/>
+<text x="460.00" y="382" text-anchor="middle" font-size="11">4</text>
+<line class="axis" x1="70" y1="362" x2="460" y2="362"/>
+<line class="axis" x1="70" y1="62" x2="70" y2="362"/>
+<polyline class="voxel" points="70.00,268.94 166.87,257.46 240.15,226.76 283.02,200.12 313.44,159.43 356.30,111.80 386.72,84.22 410.31,89.07 429.59,117.05 460.00,129.57"/>
+<circle class="point-voxel" cx="70.00" cy="268.94" r="3.5"/>
+<circle class="point-voxel" cx="166.87" cy="257.46" r="3.5"/>
+<circle class="point-voxel" cx="240.15" cy="226.76" r="3.5"/>
+<circle class="point-voxel" cx="283.02" cy="200.12" r="3.5"/>
+<circle class="point-voxel" cx="313.44" cy="159.43" r="3.5"/>
+<circle class="point-voxel" cx="356.30" cy="111.80" r="3.5"/>
+<circle class="point-voxel" cx="386.72" cy="84.22" r="3.5"/>
+<circle class="point-voxel" cx="410.31" cy="89.07" r="3.5"/>
+<circle class="point-voxel" cx="429.59" cy="117.05" r="3.5"/>
+<circle class="point-voxel" cx="460.00" cy="129.57" r="3.5"/>
+<polyline class="hex" points="70.00,269.06 166.87,257.76 240.15,227.87 283.02,202.15 313.44,164.58 356.30,122.48 386.72,103.27 410.31,115.53 429.59,136.31 460.00,146.96"/>
+<circle class="point-hex" cx="70.00" cy="269.06" r="3.5"/>
+<circle class="point-hex" cx="166.87" cy="257.76" r="3.5"/>
+<circle class="point-hex" cx="240.15" cy="227.87" r="3.5"/>
+<circle class="point-hex" cx="283.02" cy="202.15" r="3.5"/>
+<circle class="point-hex" cx="313.44" cy="164.58" r="3.5"/>
+<circle class="point-hex" cx="356.30" cy="122.48" r="3.5"/>
+<circle class="point-hex" cx="386.72" cy="103.27" r="3.5"/>
+<circle class="point-hex" cx="410.31" cy="115.53" r="3.5"/>
+<circle class="point-hex" cx="429.59" cy="136.31" r="3.5"/>
+<circle class="point-hex" cx="460.00" cy="146.96" r="3.5"/>
+<text x="265.0" y="405" text-anchor="middle" font-size="13">Voxel size (m)</text>
+<text x="725.0" y="50" text-anchor="middle" font-size="16">RMSE</text>
+<line class="grid" x1="530" y1="362.00" x2="920" y2="362.00"/>
+<text x="521" y="366.00" text-anchor="end" font-size="11">0.000</text>
+<line class="grid" x1="530" y1="302.00" x2="920" y2="302.00"/>
+<text x="521" y="306.00" text-anchor="end" font-size="11">0.004</text>
+<line class="grid" x1="530" y1="242.00" x2="920" y2="242.00"/>
+<text x="521" y="246.00" text-anchor="end" font-size="11">0.008</text>
+<line class="grid" x1="530" y1="182.00" x2="920" y2="182.00"/>
+<text x="521" y="186.00" text-anchor="end" font-size="11">0.011</text>
+<line class="grid" x1="530" y1="122.00" x2="920" y2="122.00"/>
+<text x="521" y="126.00" text-anchor="end" font-size="11">0.015</text>
+<line class="grid" x1="530" y1="62.00" x2="920" y2="62.00"/>
+<text x="521" y="66.00" text-anchor="end" font-size="11">0.019</text>
+<line class="grid" x1="530.00" y1="62" x2="530.00" y2="362"/>
+<text x="530.00" y="382" text-anchor="middle" font-size="11">0.1</text>
+<line class="grid" x1="626.87" y1="62" x2="626.87" y2="362"/>
+<text x="626.87" y="382" text-anchor="middle" font-size="11">0.25</text>
+<line class="grid" x1="700.15" y1="62" x2="700.15" y2="362"/>
+<text x="700.15" y="382" text-anchor="middle" font-size="11">0.5</text>
+<line class="grid" x1="743.02" y1="62" x2="743.02" y2="362"/>
+<text x="743.02" y="382" text-anchor="middle" font-size="11">0.75</text>
+<line class="grid" x1="773.44" y1="62" x2="773.44" y2="362"/>
+<text x="773.44" y="382" text-anchor="middle" font-size="11">1</text>
+<line class="grid" x1="816.30" y1="62" x2="816.30" y2="362"/>
+<text x="816.30" y="382" text-anchor="middle" font-size="11">1.5</text>
+<line class="grid" x1="846.72" y1="62" x2="846.72" y2="362"/>
+<text x="846.72" y="382" text-anchor="middle" font-size="11">2</text>
+<line class="grid" x1="870.31" y1="62" x2="870.31" y2="362"/>
+<text x="870.31" y="382" text-anchor="middle" font-size="11">2.5</text>
+<line class="grid" x1="889.59" y1="62" x2="889.59" y2="362"/>
+<text x="889.59" y="382" text-anchor="middle" font-size="11">3</text>
+<line class="grid" x1="920.00" y1="62" x2="920.00" y2="362"/>
+<text x="920.00" y="382" text-anchor="middle" font-size="11">4</text>
+<line class="axis" x1="530" y1="362" x2="920" y2="362"/>
+<line class="axis" x1="530" y1="62" x2="530" y2="362"/>
+<polyline class="voxel" points="530.00,244.36 626.87,237.96 700.15,209.01 743.02,183.32 773.44,149.93 816.30,105.30 846.72,84.22 870.31,96.03 889.59,108.89 920.00,106.24"/>
+<circle class="point-voxel" cx="530.00" cy="244.36" r="3.5"/>
+<circle class="point-voxel" cx="626.87" cy="237.96" r="3.5"/>
+<circle class="point-voxel" cx="700.15" cy="209.01" r="3.5"/>
+<circle class="point-voxel" cx="743.02" cy="183.32" r="3.5"/>
+<circle class="point-voxel" cx="773.44" cy="149.93" r="3.5"/>
+<circle class="point-voxel" cx="816.30" cy="105.30" r="3.5"/>
+<circle class="point-voxel" cx="846.72" cy="84.22" r="3.5"/>
+<circle class="point-voxel" cx="870.31" cy="96.03" r="3.5"/>
+<circle class="point-voxel" cx="889.59" cy="108.89" r="3.5"/>
+<circle class="point-voxel" cx="920.00" cy="106.24" r="3.5"/>
+<polyline class="hex" points="530.00,244.55 626.87,238.45 700.15,210.39 743.02,185.55 773.44,154.78 816.30,113.82 846.72,98.24 870.31,111.42 889.59,117.61 920.00,114.03"/>
+<circle class="point-hex" cx="530.00" cy="244.55" r="3.5"/>
+<circle class="point-hex" cx="626.87" cy="238.45" r="3.5"/>
+<circle class="point-hex" cx="700.15" cy="210.39" r="3.5"/>
+<circle class="point-hex" cx="743.02" cy="185.55" r="3.5"/>
+<circle class="point-hex" cx="773.44" cy="154.78" r="3.5"/>
+<circle class="point-hex" cx="816.30" cy="113.82" r="3.5"/>
+<circle class="point-hex" cx="846.72" cy="98.24" r="3.5"/>
+<circle class="point-hex" cx="870.31" cy="111.42" r="3.5"/>
+<circle class="point-hex" cx="889.59" cy="117.61" r="3.5"/>
+<circle class="point-hex" cx="920.00" cy="114.03" r="3.5"/>
+<text x="725.0" y="405" text-anchor="middle" font-size="13">Voxel size (m)</text>
+<line class="voxel" x1="265" y1="430" x2="305" y2="430"/>
+<text x="313" y="435" font-size="13">VoxelRT homogeneous</text>
+<line class="hex" x1="555" y1="430" x2="595" y2="430"/>
+<text x="603" y="435" font-size="13">HexRT heterogeneous</text>
+</svg>

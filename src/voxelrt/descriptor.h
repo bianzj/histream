@@ -28,6 +28,7 @@ public:
         netRad,
         storage,
         lad,
+        medium, // 混浊介质 (CIx, CIy, CIz, rho)
     };
 
 

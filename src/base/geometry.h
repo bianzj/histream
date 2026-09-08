@@ -8,11 +8,13 @@
 #include "src/raytracing/raytracingio.h"
 #include "src/voxeleb/voxelebio.h"
 #include "src/voxelrt/voxelrtio.h"
+#include "src/hexeb/hexebio.h"
+#include "src/hexrt/hexrtio.h"
 #include "nvh/cameramanipulator.hpp"
 #include "nvmath/nvmath.h"
 #include "utils.h"
 #include "thirdparty/spa.h"
-#include <Eigen/Dense>
+#include "eigen_compat.h"
 
 class Geometry {
 public:
@@ -49,6 +51,24 @@ public:
     void updateLight(std::shared_ptr<VoxelrtIO> &modelio, LightSet &light);
     void orthcorrect(std::shared_ptr<VoxelrtIO> &modelio,float vza, float vaa,
                      Eigen::VectorXd & cx, Eigen::VectorXd & cy);
+
+
+    bool createGeometry(std::shared_ptr<FileIO> &fileio, std::shared_ptr<HexebIO> &modelio);
+    void updateAngle(std::shared_ptr<HexebIO> &modelio, int kangle);
+    void updateSensor(std::shared_ptr<HexebIO> &modelio, SensorMatrix &sensor);
+    void updateLight(std::shared_ptr<HexebIO> &modelio, LightSet &light);
+    void orthcorrect(std::shared_ptr<HexebIO> &modelio,float vza, float vaa,
+                     Eigen::VectorXd &cx, Eigen::VectorXd &cy);
+    static void updateSolarAngle(std::shared_ptr<HexebIO> &modelio, Angle &angle);
+
+
+    bool createGeometry(std::shared_ptr<FileIO> &fileio, std::shared_ptr<HexrtIO> &modelio);
+    void updateAngle(std::shared_ptr<HexrtIO> &modelio, int kangle);
+    void updateSensorPos(std::shared_ptr<HexrtIO> &modelio, int kPos);
+    void updateSensor(std::shared_ptr<HexrtIO> &modelio, SensorMatrix &sensor);
+    void updateLight(std::shared_ptr<HexrtIO> &modelio, LightSet &light);
+    void orthcorrect(std::shared_ptr<HexrtIO> &modelio,float vza, float vaa,
+                     Eigen::VectorXd &cx, Eigen::VectorXd &cy);
 
 
 private:

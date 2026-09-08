@@ -2,7 +2,12 @@
 // Created by admin on 2024/1/25.
 //
 
+#ifdef _WIN32
 #include <io.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 #include "pipeline.h"
 
 

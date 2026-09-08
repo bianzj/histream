@@ -1,0 +1,92 @@
+[
+  {
+    "voxel_size_m": 0.1,
+    "mean_voxel_mae": 0.004084161017090082,
+    "mean_hex_mae": 0.0040788413025438786,
+    "hex_mae_improvement_pct": 0.13025232168720757,
+    "mean_voxel_rmse": 0.007461391389369965,
+    "mean_hex_rmse": 0.007449375465512276,
+    "hex_rmse_improvement_pct": 0.16104132903157486
+  },
+  {
+    "voxel_size_m": 0.25,
+    "mean_voxel_mae": 0.004588051699101925,
+    "mean_hex_mae": 0.004574546590447426,
+    "hex_mae_improvement_pct": 0.29435389006498003,
+    "mean_voxel_rmse": 0.007867258973419666,
+    "mean_hex_rmse": 0.007836010307073593,
+    "hex_rmse_improvement_pct": 0.3971989030950973
+  },
+  {
+    "voxel_size_m": 0.5,
+    "mean_voxel_mae": 0.005935113411396742,
+    "mean_hex_mae": 0.005886692088097334,
+    "hex_mae_improvement_pct": 0.8158449543091861,
+    "mean_voxel_rmse": 0.009703471325337887,
+    "mean_hex_rmse": 0.0096158841624856,
+    "hex_rmse_improvement_pct": 0.9026374161953621
+  },
+  {
+    "voxel_size_m": 0.75,
+    "mean_voxel_mae": 0.0071045029908418655,
+    "mean_hex_mae": 0.007015411276370287,
+    "hex_mae_improvement_pct": 1.254017551775588,
+    "mean_voxel_rmse": 0.01133281085640192,
+    "mean_hex_rmse": 0.011191383935511112,
+    "hex_rmse_improvement_pct": 1.2479421273577151
+  },
+  {
+    "voxel_size_m": 1.0,
+    "mean_voxel_mae": 0.008890040218830109,
+    "mean_hex_mae": 0.008664251305162907,
+    "hex_mae_improvement_pct": 2.539796312607856,
+    "mean_voxel_rmse": 0.013450851663947105,
+    "mean_hex_rmse": 0.013143005780875683,
+    "hex_rmse_improvement_pct": 2.288672054101637
+  },
+  {
+    "voxel_size_m": 1.5,
+    "mean_voxel_mae": 0.010980461724102497,
+    "mean_hex_mae": 0.010511836968362331,
+    "hex_mae_improvement_pct": 4.267805557862092,
+    "mean_voxel_rmse": 0.016281424090266228,
+    "mean_hex_rmse": 0.015741102397441864,
+    "hex_rmse_improvement_pct": 3.3186390197119997
+  },
+  {
+    "voxel_size_m": 2.0,
+    "mean_voxel_mae": 0.012190785259008408,
+    "mean_hex_mae": 0.011355040594935417,
+    "hex_mae_improvement_pct": 6.85554413695717,
+    "mean_voxel_rmse": 0.01761827990412712,
+    "mean_hex_rmse": 0.016729146242141724,
+    "hex_rmse_improvement_pct": 5.046654195663647
+  },
+  {
+    "voxel_size_m": 2.5,
+    "mean_voxel_mae": 0.011977857910096645,
+    "mean_hex_mae": 0.010816831141710281,
+    "hex_mae_improvement_pct": 9.693108543287066,
+    "mean_voxel_rmse": 0.01686936244368553,
+    "mean_hex_rmse": 0.015893440693616867,
+    "hex_rmse_improvement_pct": 5.785172695924656
+  },
+  {
+    "voxel_size_m": 3.0,
+    "mean_voxel_mae": 0.010749924927949905,
+    "mean_hex_mae": 0.009904864244163036,
+    "hex_mae_improvement_pct": 7.861084514085337,
+    "mean_voxel_rmse": 0.016053641214966774,
+    "mean_hex_rmse": 0.01550049614161253,
+    "hex_rmse_improvement_pct": 3.4456050558707374
+  },
+  {
+    "voxel_size_m": 4.0,
+    "mean_voxel_mae": 0.01020064763724804,
+    "mean_hex_mae": 0.009437340311706066,
+    "hex_mae_improvement_pct": 7.482930032351365,
+    "mean_voxel_rmse": 0.016221784055233,
+    "mean_hex_rmse": 0.015727568417787552,
+    "hex_rmse_improvement_pct": 3.0466170413976146
+  }
+]

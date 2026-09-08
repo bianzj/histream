@@ -69,6 +69,14 @@ bool Buffer::createBuffer(std::shared_ptr<VoxelebIO> &voxellstio){
         if (meshio->meshLinks[meshId].type == static_cast<int>(Type::WATER)) {
             voxelTempes[i] = VoxelTempe{298.15f, 298.15f};
         }
+        const int canopyId = meshio->meshLinks[meshId].canopyId;
+        if (canopyId >= 0 && canopyId < static_cast<int>(meshio->canopies.size())) {
+            const Canopy& canopy = meshio->canopies[canopyId];
+            if ((canopy.structureType == 2 || canopy.structureType == 3)
+                && std::isfinite(canopy.fixedTemperature) && canopy.fixedTemperature > 0.0f) {
+                voxelTempes[i] = VoxelTempe{canopy.fixedTemperature, canopy.fixedTemperature};
+            }
+        }
     }
     voxelio->m_pTempeBuffer = std::make_shared<nvvk::Buffer>(m_pAlloc->createBuffer(cmdBufTempe, voxelTempes,
                                                                            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -137,6 +145,15 @@ bool Buffer::createBuffer(std::shared_ptr<VoxelebIO> &voxellstio){
                                                                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
         cmdGen.submitAndWait(cmdBufVoxelNano);
+
+        // 所有 Voxel/Hex 模式均绑定混浊介质参数；无 OBJ rho 时保留合法占位项。
+        if (voxelio->voxelHexs.empty()) {
+            voxelio->voxelHexs.emplace_back();
+        }
+        VkCommandBuffer cmdBufMedium = cmdGen.createCommandBuffer();
+        voxelio->m_pVoxelHexBuffer = std::make_shared<nvvk::Buffer>(
+            m_pAlloc->createBuffer(cmdBufMedium, voxelio->voxelHexs, usage_));
+        cmdGen.submitAndWait(cmdBufMedium);
     }
 
 
@@ -378,6 +395,7 @@ void Buffer::destroy(std::shared_ptr<VoxelebIO> &voxellstio){
     m_pAlloc->destroy(*(instanceio->m_pBufferInstanceLink));
     m_pAlloc->destroy(*(voxelio->m_pVoxelLinkBuffer));
     m_pAlloc->destroy(*(voxelio->m_pVoxelNanoBuffer));
+    if (voxelio->m_pVoxelHexBuffer) m_pAlloc->destroy(*(voxelio->m_pVoxelHexBuffer));
 
     m_pAlloc->destroy(*(surfio->m_pBufferLad));
 
@@ -420,5 +438,4 @@ void Buffer::destroy(std::shared_ptr<VoxelebIO> &voxellstio){
 
     //m_rtBuilder.destroy();
 }
-
 

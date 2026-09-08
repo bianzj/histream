@@ -205,3 +205,9 @@ cmake-build-debug-visual-studio/CMakeFiles/field.dir/src/voxeleb/pipeline.cpp.ob
 cmake-build-debug-visual-studio/CMakeFiles/field.dir/src/voxeleb/voxeleb.cpp.obj
 cmake-build-debug-visual-studio/CMakeFiles/field.dir/src/voxeleb/voxelebio.cpp.obj
 *.obj
+build-linux/
+cmake-build-default/
+*.orig
+*.log
+*.pyc
+__pycache__/

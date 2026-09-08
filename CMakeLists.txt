@@ -1,4 +1,4 @@
-﻿# CMakeList.txt: TIRT_3D 的 CMake 项目，在此处包括源代码并定义
+# CMakeList.txt: TIRT_3D 的 CMake 项目，在此处包括源代码并定义
 # 项目特定的逻辑。
 #
 cmake_minimum_required(VERSION 3.9.0 FATAL_ERROR)
@@ -23,12 +23,30 @@ set(CMAKE_CXX_STANDARD 17)
 add_executable(${PROJNAME}
         src/main.cpp)
 
+# 独立工具: 异质性体元 (hex voxel) 参数计算 (纯 CPU, 无第三方依赖)
+#   hexvoxel <scene.obj> <voxel_size_m> [--n N] [--m M] [--k K] [--int 0|1]
+#            [--dir3 label:dx,dy,dz] [--dirza label:zen,az] [--out prefix]
+option(HISTREAM_BUILD_HEXVOXEL_TOOL "Build standalone hexvoxel CPU tool" ON)
+if (HISTREAM_BUILD_HEXVOXEL_TOOL)
+    add_executable(hexvoxel
+            src/tools/hexvoxel/main.cpp
+            src/base/hexvoxel.cpp)
+    set_target_properties(hexvoxel PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+    find_package(OpenMP QUIET)
+    if (OpenMP_CXX_FOUND)
+        target_link_libraries(hexvoxel PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+endif()
+
 
 
 if (MSVC)
     add_definitions(/wd26812)  # 'enum class' over 'enum'
     add_definitions(/wd26451)  # Arithmetic overflow, casting 4 byte value to 8 byte value
     target_compile_options(${PROJNAME} PRIVATE /utf-8)
+    if (TARGET hexvoxel)
+        target_compile_options(hexvoxel PRIVATE /utf-8)
+    endif()
 endif ()
 
 # find_package(LibLZMA REQUIRED)
@@ -94,6 +112,9 @@ message(STATUS "Use new nvpro_core")
 #   Forcing to use our memory allocator DMA (similar to Vulkan Memory Allocator (VMA))
 #target_compile_definitions(${PROJNAME} PUBLIC ALLOC_VMA)
 target_compile_definitions(${PROJNAME} PUBLIC ALLOC_DMA)
+if (HISTREAM_ENABLE_FACET)
+    target_compile_definitions(${PROJNAME} PUBLIC HISTREAM_ENABLE_FACET=1)
+endif()
 #target_compile_definitions(${PROJNAME} PUBLIC ALLOC_DEDICATED)
 
 
@@ -117,6 +138,8 @@ file(GLOB SOURCE_FILES
         src/raytracing/*.cpp
         src/voxeleb/*.cpp
         src/voxelrt/*.cpp
+        src/hexrt/*.cpp
+        src/hexeb/*.cpp
 )
 
 file(GLOB HEADER_FILES
@@ -126,6 +149,8 @@ file(GLOB HEADER_FILES
         src/raytracing/*.h
         src/voxeleb/*.h
         src/voxelrt/*.h
+        src/hexrt/*.h
+        src/hexeb/*.h
 )
 
 if (HISTREAM_ENABLE_FACET)
@@ -230,7 +255,11 @@ target_link_libraries(${PROJNAME} ${GDAL_LIBRARIES})
 find_package(Eigen3 CONFIG REQUIRED)
 target_link_libraries(${PROJNAME}  Eigen3::Eigen)
 
-set(OpenCV_DIR "${VCPKG_INSTALLED_DIR}/x64-windows/share/opencv2")
+if (WIN32)
+    set(OpenCV_DIR "${VCPKG_INSTALLED_DIR}/x64-windows/share/opencv2" CACHE PATH "OpenCV config directory")
+else ()
+    # Linux: OpenCV 通过 conda-forge 提供, 由 -DCMAKE_PREFIX_PATH 或 OpenCV_DIR 指定
+endif ()
 find_package(OpenCV REQUIRED)
 target_link_libraries(${PROJNAME} ${OpenCV_LIBS})
 
@@ -250,7 +279,12 @@ endforeach (RELEASELIB)
 
 # Deploy runtime resources next to histream.exe so XML-driven projects use the same
 # shader and predefined-data layout as the built-in configurations.
-add_custom_command(TARGET ${PROJNAME} POST_BUILD
+# facet 关闭时保证部署目录存在 (空目录)
+if (NOT HISTREAM_ENABLE_FACET)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shader/facetrt")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/shader/faceteb")
+endif()
+set(HISTREAM_DEPLOY_CMDS
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/shader"
             "$<TARGET_FILE_DIR:${PROJNAME}>/shader"
@@ -262,10 +296,15 @@ add_custom_command(TARGET ${PROJNAME} POST_BUILD
             "$<TARGET_FILE_DIR:${PROJNAME}>/shader/facetrt"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_BINARY_DIR}/shader/faceteb"
-            "$<TARGET_FILE_DIR:${PROJNAME}>/shader/faceteb"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "$<TARGET_FILE_DIR:${PROJNAME}>/shader/faceteb")
+if (WIN32 AND VCPKG_INSTALLED_DIR)
+    list(APPEND HISTREAM_DEPLOY_CMDS
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
             "$<IF:$<CONFIG:Debug>,${VCPKG_INSTALLED_DIR}/x64-windows/debug/bin,${VCPKG_INSTALLED_DIR}/x64-windows/bin>"
-            "$<TARGET_FILE_DIR:${PROJNAME}>"
+            "$<TARGET_FILE_DIR:${PROJNAME}>")
+endif()
+add_custom_command(TARGET ${PROJNAME} POST_BUILD
+    ${HISTREAM_DEPLOY_CMDS}
     COMMENT "Deploying HiStream shader and defined runtime resources"
 )
 

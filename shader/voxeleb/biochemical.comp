@@ -74,6 +74,7 @@ void main()
     canopyId = meshLink0.canopyId;
     bioId = meshLink0.bioId;
     typeId = meshLink0.type;
+    if(typeId == TYPE_VEGETATION && isParticipatingMedium(canopies[canopyId])) return;
 
     
 

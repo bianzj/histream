@@ -182,9 +182,19 @@ bool Voxeleb::run(std::shared_ptr<VoxelebIO> &modelio, std::shared_ptr<FileIO> &
 
         updateMeteo(modelio,knode);
 
+        // Energy balance starts with the solar-transmittance pass.  Upload the
+        // sun direction for the current meteorological time before that pass;
+        // otherwise it traces the XML/previous-time direction and the shadow
+        // field lags behind the meteorological forcing.
+        m_pGeometry->updateAngle(modelio, 0);
+
         m_pCommand->runEB(modelio);
 
-        std::cout << "Time Info:" << "    t_" << std::to_string(modelio->meteo.t) << std::endl;
+        const Angle& solarAngle = modelio->angles[0];
+        std::cout << "Time Info:"
+                  << "    t_" << std::to_string(modelio->meteo.t)
+                  << "    sza_" << std::to_string(solarAngle.sza)
+                  << "    saa_" << std::to_string(solarAngle.saa) << std::endl;
         if (modelio->isProcess) {
             outputVoxel(modelio,fileio);
         }

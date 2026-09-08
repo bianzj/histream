@@ -24,8 +24,9 @@ void ClosestHit(Ray r)
   {
     if(rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
     {
-        rayQueryConfirmIntersectionEXT(rayQuery);  // The hit was opaque
-        break;
+        // Candidate intersections are not guaranteed to arrive closest-first.
+        // Continue traversal so the committed result is the nearest hit.
+        rayQueryConfirmIntersectionEXT(rayQuery);
     }
   }
   bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionTriangleEXT);
@@ -66,8 +67,8 @@ void ClosestHitT(Ray r)
   {
     if(rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
     {
-        rayQueryConfirmIntersectionEXT(rayQuery);  // The hit was opaque
-        break;
+        // Candidate intersections are not guaranteed to arrive closest-first.
+        rayQueryConfirmIntersectionEXT(rayQuery);
     }
   }
   bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT);
@@ -184,8 +185,8 @@ void ClosestHit(Ray r,float minLength)
   {
     if(rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionTriangleEXT)
     {
-        rayQueryConfirmIntersectionEXT(rayQuery);  // The hit was opaque
-        break;
+        // Candidate intersections are not guaranteed to arrive closest-first.
+        rayQueryConfirmIntersectionEXT(rayQuery);
     }
   }
   bool hit = (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT);
@@ -230,4 +231,4 @@ bool AnyHit(Ray r, float maxDist)
 
 
 
-#endif 
+#endif

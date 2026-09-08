@@ -58,6 +58,7 @@ bool Descriptor::createDescriptor(std::shared_ptr<VoxelebIO> &modelio){
     bindings.addBinding(VoxelebbindingInd::state, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
     bindings.addBinding(VoxelebbindingInd::lad, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
     bindings.addBinding(VoxelebbindingInd::waterSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
+    bindings.addBinding(VoxelebbindingInd::medium, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
 
 
     m_descSetLayout = bindings.createLayout(m_device);
@@ -170,6 +171,9 @@ bool Descriptor::createDescriptor(std::shared_ptr<VoxelebIO> &modelio){
 
     VkDescriptorBufferInfo dbiWaterset{meshio->m_pWaterSetBuffer->buffer, 0, VK_WHOLE_SIZE};
     updates.emplace_back(bindings.makeWrite(m_descSet, VoxelebbindingInd::waterSet, &dbiWaterset));
+
+    VkDescriptorBufferInfo dbiMedium{voxelio->m_pVoxelHexBuffer->buffer, 0, VK_WHOLE_SIZE};
+    updates.emplace_back(bindings.makeWrite(m_descSet, VoxelebbindingInd::medium, &dbiMedium));
 
     vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(updates.size()), updates.data(), 0, nullptr);
     return true;

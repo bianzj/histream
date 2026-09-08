@@ -20,6 +20,7 @@ public:
     nanovdb::GridHandle<BufferT> nanoHandle;
 
     std::vector<VoxelLink> voxellinks;
+    std::vector<VoxelHex> voxelHexs;   // 混浊介质参数: (CIx, CIy, CIz, rho)
     std::vector<Spectral> spectrals;
     std::vector<Thermal> thermals;
 
@@ -31,6 +32,7 @@ public:
 
     std::shared_ptr<nvvk::Buffer> m_pVoxelLinkBuffer;    // voxel link, point to its instanceID (static property) and voxelID (dynamic property)
     std::shared_ptr<nvvk::Buffer> m_pVoxelNanoBuffer;    // NanoVDB data
+    std::shared_ptr<nvvk::Buffer> m_pVoxelHexBuffer;     // 混浊介质参数，Voxel/Hex 共用
 
     std::shared_ptr<nvvk::Buffer> m_pDirBuffer;     // Lst
     std::shared_ptr<nvvk::Buffer> m_pRadsBuffer;

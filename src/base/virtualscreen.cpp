@@ -62,4 +62,36 @@ bool VirtualScreen::bufferToBuffer(std::shared_ptr<VoxelrtIO> & modelio,
     return true;
 }
 
+bool VirtualScreen::bufferToBuffer(std::shared_ptr<HexebIO> & modelio,
+                                   const nvvk::Buffer& bufferIn, VkDeviceSize size, const nvvk::Buffer& bufferOut)
+{
+    VkDevice &m_device = modelio->m_device;
+    int m_queueFamilyIndex = modelio->m_queueIndex;
 
+    nvvk::CommandPool genCmdBuf((vk::Device)m_device, m_queueFamilyIndex);
+    vk::CommandBuffer cmdBuff = genCmdBuf.createCommandBuffer();
+    vk::BufferCopy copyRegion;
+    copyRegion.setSrcOffset(0);
+    copyRegion.setDstOffset(0);
+    copyRegion.setSize(size);
+    cmdBuff.copyBuffer(bufferIn.buffer, bufferOut.buffer, copyRegion);
+    genCmdBuf.submitAndWait(cmdBuff);
+    return true;
+}
+
+bool VirtualScreen::bufferToBuffer(std::shared_ptr<HexrtIO> & modelio,
+                                   const nvvk::Buffer& bufferIn, VkDeviceSize size, const nvvk::Buffer& bufferOut)
+{
+    VkDevice &m_device = modelio->m_device;
+    int m_queueFamilyIndex = modelio->m_queueIndex;
+
+    nvvk::CommandPool genCmdBuf((vk::Device)m_device, m_queueFamilyIndex);
+    vk::CommandBuffer cmdBuff = genCmdBuf.createCommandBuffer();
+    vk::BufferCopy copyRegion;
+    copyRegion.setSrcOffset(0);
+    copyRegion.setDstOffset(0);
+    copyRegion.setSize(size);
+    cmdBuff.copyBuffer(bufferIn.buffer, bufferOut.buffer, copyRegion);
+    genCmdBuf.submitAndWait(cmdBuff);
+    return true;
+}

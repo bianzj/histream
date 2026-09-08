@@ -46,6 +46,17 @@ float wavelength = 10500;
 float LST;
 float LSTSum;
 
+float ValidTemperature(float temperature)
+{
+    float airTemperature = (!isnan(ubom.meteo.Ta) && !isinf(ubom.meteo.Ta)
+                            && ubom.meteo.Ta > 0.0)
+        ? ubom.meteo.Ta
+        : 300.0;
+    return (!isnan(temperature) && !isinf(temperature) && temperature > 0.0)
+        ? temperature
+        : airTemperature;
+}
+
 bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 {
     // initialized the transmittance and accumulated radiance 
@@ -53,6 +64,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
     float alpha_toSolar, alpha_voxel;
     float density,G,lai;
     LST = 0.0;
+    bool validHit = false;
     vec3 ffnormal;
     ivec3 voxelId;
     int bufferId,alignBufferId;
@@ -90,9 +102,10 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 		///////////////////////////////////////////////////
         if(prd.hitT == INFINITY)
         {
-            LST += 0;
-            return true;
+            // Rays outside the finite scene are invalid samples.
+            return false;
         }
+        validHit = true;
 
         ///////////////////////////////////////////////////
 		/// Turbid or facet ground case (j -> sensor).
@@ -128,6 +141,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 			canopy = canopies[canopyId];
             uint spectralBase = spectralId * NUM_BAND;
             float envTemp = Inv_Stefen_Boltzmann(voxelNetRads[bufferId].diffuseTrad, 1);
+            envTemp = ValidTemperature(envTemp);
 
             // LST = voxelNetRads[bufferId].diffuseVrad;
             // LST = voxelHeatFlux[bufferId].Gshaded;
@@ -149,15 +163,10 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 
                 G = canopies[canopyId].G;
                 lai = canopies[canopyId].lai;
-                // density determined by mesh/isntance or pixel scale?
-                if(setting.islad < 1){
-                    density = canopies[canopyId].density;
-                }else{         
-                    uint surf1DId = SurfFlatten(voxelId, voxelRes);
-                    density = lads[surf1DId]; 
-                }
+                density = isParticipatingMedium(canopy) ? canopy.density
+                    : ResolveTurbidDensity(bufferId, canopyId, voxelId, voxelRes);
 				float pathLength = Vector2Distance(sstate.position - sstate.lastPosition);// * 0.2; //!!!!需要改回去！！！
-                alpha_voxel = exp(-density * G * pathLength * scale);
+                alpha_voxel = canopyVoxelTransmittance(canopy, density, G, pathLength, scale);
 				alpha_toSolar = voxelDirs[bufferId].solar;
 
                 // LST = pathLength;
@@ -173,8 +182,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
                 // return true;
                 
 				if(alpha_toSensor < 0.001) {
-                    
-                    break;
+                    return validHit && LST > 0.0;
                 }
 				// this is used for the hotspot effect
 				if(alpha_toSolar < 0.0001) pl_toSolar = 10000.0;
@@ -209,8 +217,10 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 
                 
                 // get sunlit and shaded fraction and mixed them for an average result.
-                float sunlitTemperature = voxelTempes[bufferId].sunlit;
-                float shadedTemperature = voxelTempes[bufferId].shaded;
+                float sunlitTemperature = isParticipatingMedium(canopy) && canopy.fixedTemperature > 0.0
+                    ? canopy.fixedTemperature : ValidTemperature(voxelTempes[bufferId].sunlit);
+                float shadedTemperature = isParticipatingMedium(canopy) && canopy.fixedTemperature > 0.0
+                    ? canopy.fixedTemperature : ValidTemperature(voxelTempes[bufferId].shaded);
 
                 // hot spot
                 float radianceDirect = 0.0;
@@ -254,6 +264,7 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
             uint bioId = meshLinks[meshId].bioId;
             uint spectralBase = spectralId * NUM_BAND;
             float envTemp = Inv_Stefen_Boltzmann(voxelNetRads[alignBufferId].diffuseTrad, 1);
+            envTemp = ValidTemperature(envTemp);
 
             // LST = voxelNetRads[alignBufferId].diffuseTrad + voxelNetRads[alignBufferId].directTrad + voxelNetRads[alignBufferId].directVrad + voxelNetRads[alignBufferId].diffuseVrad;
             // float sunlitTemperature1 = voxelTempes[alignBufferId].sunlit;
@@ -337,8 +348,8 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
                 //// (solar -> i -> o) + self-emitter(i -> o); i is soil.
                 float radianceDirect = 0.0;
                 // get sunlit and shaded fraction and mixed them for an average result.
-                float sunlitTemperature = voxelTempes[alignBufferId].sunlit;
-                float shadedTemperature = voxelTempes[alignBufferId].shaded;
+                float sunlitTemperature = ValidTemperature(voxelTempes[alignBufferId].sunlit);
+                float shadedTemperature = ValidTemperature(voxelTempes[alignBufferId].shaded);
 
                 // hotspot
                 float thermalRadiance = Planck(wavelength, sunlitTemperature) * hotspot 
@@ -356,7 +367,8 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 // // LST = voxelRaas[alignBufferId].raa;
 // break;
 
-                radianceDirect = thermalRadiance * (1 - refl - trans);
+                float emissivity = clamp(1.0 - refl - trans, 0.0, 1.0);
+                radianceDirect = thermalRadiance * emissivity;
                 
                 //LST = canopy.G;
                 if (radianceDirect > 0){
@@ -381,9 +393,10 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 		ffnormal = sstate.normal;
 		ray.origin = OffsetRay(ray.origin, dot(ray.direction, ffnormal) > 0 ? ffnormal : -ffnormal);
     }
+    return validHit && LST > 0.0;
 }
 
-void SamplePixel(vec2 imageCoords,vec2 sizeImage,int smpl)
+bool SamplePixel(vec2 imageCoords,vec2 sizeImage,int smpl)
 {
     LST = 0.0;
     // 每次光线的随机/波动进行光滑
@@ -414,8 +427,7 @@ void SamplePixel(vec2 imageCoords,vec2 sizeImage,int smpl)
     vec3 directionv = normalize(direction.xyz);
 	Ray ray = Ray(origin.xyz, directionv);
 
-    Voxel_raytracing(ray, nanoVDBLink);
-   // LST = 1.0;
+    return Voxel_raytracing(ray, nanoVDBLink);
 }
 
 
@@ -424,11 +436,13 @@ void main()
     // image imageSize
 	ivec2 imageRes    = ivec2(setting.imageSize);
     // image coordinate from 1-imageSize
-    ivec2 imageCoords = ivec2(gl_GlobalInvocationID.xy);  //SampleSizzled();
+	ivec2 imageCoords = ivec2(gl_GlobalInvocationID.xy);  //SampleSizzled();
+    if(any(greaterThanEqual(imageCoords, setting.imageSize))) return;
     
     uint temp = uint(setting.imageSize.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x);
     prd.seed = tea(temp, setting.frame * setting.n_sample);
     LSTSum = 0.0;
+    int validSampleCount = 0;
 
     // int bufferId = int((imageCoords.y * imageRes.x + imageCoords.x ));
     // LST = imageCoords.x;
@@ -437,10 +451,13 @@ void main()
 
     for(int smpl = 0; smpl< setting.n_sample; smpl++)
     {
-        SamplePixel(imageCoords, imageRes, smpl);
-        LSTSum += LST;
+        if(SamplePixel(imageCoords, imageRes, smpl))
+        {
+            validSampleCount++;
+            LSTSum += LST;
+        }
     }
-    LST = LSTSum/setting.n_sample;
+    LST = validSampleCount > 0 ? LSTSum / float(validSampleCount) : 0.0;
     
     int bufferId = int((imageCoords.y * imageRes.x + imageCoords.x ));
 

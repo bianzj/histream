@@ -392,3 +392,183 @@ void Compo::bsm(OptCoeff bsmCoeff,BSMParam bsm,std::vector<Spectral>& spectrals)
     }
 
 }
+
+// ===== Hex 模块重载 (实现与 Voxelrt/Voxeleb 相同) =====
+bool Compo::createCompOptical(std::shared_ptr<FileIO> &fileio, std::shared_ptr<HexrtIO> &modelio)
+{
+    auto & meshio = modelio->m_meshio;
+    meshio->spectrals.clear();
+    meshio->thermals.clear();
+
+    //--------------------------------------------------
+    //--- Spectral
+    //--------------------------------------------------
+    int id = 0;
+    for(auto &spectralxml: fileio->m_pVoxelrtXml->spectralxmls ){
+        if(spectralxml.type == spectralType::CUSTOM){
+            for(int i=0;i<spectralxml.reflectances.size();i++)
+                meshio->spectrals.push_back(Spectral{spectralxml.reflectances[i],spectralxml.transmittance[i]});
+        }
+        meshio->spectralNames.insert({spectralxml.spectralName,id});
+        id++;
+    }
+    //--------------------------------------------------
+    //--- Thermal
+    //--------------------------------------------------
+    id = 0;
+    for(auto &thermalxml: fileio->m_pVoxelrtXml->thermalxmls ) {
+        meshio->thermals.push_back(Thermal{thermalxml.sunlitTemperature, thermalxml.shadedTemperature});
+        meshio->thermalNames.insert({thermalxml.thermalName,id});
+        id++;
+    }
+    //--------------------------------------------------
+    //--- Canopy
+    //--------------------------------------------------
+    id = 0;
+    for(auto &canopyxml: fileio->m_pVoxelrtXml->canopyxmls){
+
+        ;
+        meshio->canopies.push_back(canopyxml.canopy);
+        meshio->canopyNames.insert({canopyxml.canopyName,id});
+        id++;
+    }
+
+    return true;
+}
+
+bool Compo::createCompProperty(std::shared_ptr<FileIO> &fileio, std::shared_ptr<HexebIO> &modelio) {
+
+    auto & meshio = modelio->m_meshio;
+    auto & definedio = modelio->m_defined;
+    int num = 0;
+
+    int id = 0;
+    for(auto &spectralxml: fileio->m_pVoxelebXml->spectralxmls ){
+
+        if(spectralxml.type == spectralType::PROSPECT){
+
+            // spectral
+            for(int i=0;i<spectralxml.reflectances.size();i++)
+                meshio->spectrals.push_back(Spectral{spectralxml.reflectances[i],spectralxml.transmittance[i]});
+
+            // fixedSpectral
+            meshio->fp = spectralxml.fp;
+            std::vector<Spectral> spectral_;
+            fluspect(definedio->m_fluspectCoeff,meshio->fp,spectral_);
+            spectral_.push_back(Spectral{spectralxml.refl_tir,spectralxml.tau_tir});
+            meshio->fixedSpectrals.insert(meshio->fixedSpectrals.end(),spectral_.begin(),spectral_.end());
+
+        }
+
+        if(spectralxml.type == spectralType::BSM){
+
+            // spectral
+            for(int i=0;i<spectralxml.reflectances.size();i++)
+                meshio->spectrals.push_back(Spectral{spectralxml.reflectances[i],spectralxml.transmittance[i]});
+
+            // fixedSpectral
+            meshio->fp = spectralxml.fp;
+            std::vector<Spectral> spectral_;
+            //fluspect(definedio->m_fluspectCoeff,meshio->fp,spectral_);
+            bsm(definedio->m_fluspectCoeff,spectralxml.bsm,spectral_);
+            spectral_.push_back(Spectral{spectralxml.refl_tir,spectralxml.tau_tir});
+            meshio->fixedSpectrals.insert(meshio->fixedSpectrals.end(),spectral_.begin(),spectral_.end());
+
+        }
+
+        if(spectralxml.type == spectralType::OTHER){
+
+            //spectral
+            for(int i=0;i<spectralxml.reflectances.size();i++)
+                meshio->spectrals.push_back(Spectral{spectralxml.reflectances[i],spectralxml.transmittance[i]});
+
+            // fixedSpectral
+            //------------------------------------
+            std::string infileName1 = spectralxml.path;
+            //m_soilRefl_ = Utils::readascfile(infileName, 0, 1, num);
+            std::vector<float> refl_;
+            Utils::readascfileinout(infileName1,0,1,refl_,num);
+            for(int k = 0;k<N1;k++){
+                Spectral spectral{refl_[k],0};
+                meshio->fixedSpectrals.push_back(spectral);
+            }
+            meshio->fixedSpectrals.push_back(Spectral{spectralxml.refl_tir,spectralxml.tau_tir});
+
+        }
+
+        if(spectralxml.type == spectralType::CUSTOM){
+
+            //spectral
+            for(int i=0;i<spectralxml.reflectances.size();i++)
+                meshio->spectrals.push_back(Spectral{spectralxml.reflectances[i],spectralxml.transmittance[i]});
+
+            // fixedSpectral
+            //------------------------------------
+            //std::string infileName1 = spectralxml.path;
+            //m_soilRefl_ = Utils::readascfile(infileName, 0, 1, num);
+            //std::vector<float> refl_;
+            //Utils::readascfileinout(infileName1,0,1,refl_,num);
+
+            for(int k = 0;k<N1;k++){
+                Spectral spectral{spectralxml.reflectances[0],spectralxml.transmittance[0]};
+                meshio->fixedSpectrals.push_back(spectral);
+            }
+            meshio->fixedSpectrals.push_back(Spectral{spectralxml.refl_tir,spectralxml.tau_tir});
+
+        }
+
+        meshio->spectralNames.insert({spectralxml.spectralName,id});
+        id++;
+    }
+
+    id = 0;
+    for(auto &canopyxml: fileio->m_pVoxelebXml->canopyxmls){
+        meshio->canopies.push_back(canopyxml.canopy);
+        meshio->canopyNames.insert({canopyxml.canopyName,id});
+        id++;
+    }
+
+    // The VoxelEB descriptor layout is fixed, so water-only scenes still need
+    // valid placeholder buffers for resources unused by water shaders.
+    if (meshio->canopies.empty()) {
+        meshio->canopies.push_back(Canopy{});
+        meshio->canopyNames.insert({"__default_canopy", 0});
+    }
+
+    int id1 = 0,id2 = 0,id3 = 0;
+    for(auto &propxml: fileio->m_pVoxelebXml->propxmls){
+
+        if(propxml.type == Type::VEGETATION) {
+            meshio->leafbios.push_back(propxml.leafbio);
+            meshio->leafbioNames.insert({propxml.name, id1});
+            id1++;
+        }
+        else if(propxml.type == Type::SOIL){
+            meshio->soilsets.push_back(propxml.soilset);
+            meshio->soilsetNames.insert({propxml.name, id2});
+            id2++;
+        }
+        else if(propxml.type == Type::WATER){
+            meshio->watersets.push_back(propxml.waterset);
+            meshio->watersetNames.insert({propxml.name, id3});
+            id3++;
+        }
+    }
+
+    if (meshio->leafbios.empty()) {
+        meshio->leafbios.push_back(LeafBio{});
+        meshio->leafbioNames.insert({"__default_leaf", 0});
+    }
+    if (meshio->soilsets.empty()) {
+        meshio->soilsets.push_back(SoilSet{});
+        meshio->soilsetNames.insert({"__default_soil", 0});
+    }
+
+    // Descriptor bindings are fixed; keep compatibility with scenes that have no water.
+    if (meshio->watersets.empty()) {
+        meshio->watersets.push_back(WaterSet{0.0f, 4.186e6f, 1.0f, 1.0f});
+        meshio->watersetNames.insert({"water", 0});
+    }
+
+    return false;
+}

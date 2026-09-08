@@ -58,6 +58,15 @@ void main()
     bioId = meshLink.bioId;
     typeId = meshLink.type;
     if(typeId == TYPE_NULL) return;
+    if(typeId == TYPE_VEGETATION && isParticipatingMedium(canopies[canopyId])) {
+        float fixedTemperature = canopies[canopyId].fixedTemperature > 0.0
+            ? canopies[canopyId].fixedTemperature : ubom.meteo.Ta + 273.15;
+        voxelTempes[bufferId].sunlit = fixedTemperature;
+        voxelTempes[bufferId].shaded = fixedTemperature;
+        voxelNetRads[bufferId].netSunlit = 0.0;
+        voxelNetRads[bufferId].netShaded = 0.0;
+        return;
+    }
     //-------------------------
     // various parameters associated with radiation 
     //-------------------------

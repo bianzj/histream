@@ -130,6 +130,15 @@ bool Buffer::createBuffer(std::shared_ptr<VoxelrtIO> &voxellstio){
                                                                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
         cmdGen.submitAndWait(cmdBufVoxelNano);
+
+        // 所有 Voxel/Hex 模式均绑定混浊介质参数；无 OBJ rho 时保留合法占位项。
+        if (voxelio->voxelHexs.empty()) {
+            voxelio->voxelHexs.emplace_back();
+        }
+        VkCommandBuffer cmdBufMedium = cmdGen.createCommandBuffer();
+        voxelio->m_pVoxelHexBuffer = std::make_shared<nvvk::Buffer>(
+            m_pAlloc->createBuffer(cmdBufMedium, voxelio->voxelHexs, usage_));
+        cmdGen.submitAndWait(cmdBufMedium);
     }
 
 
@@ -251,6 +260,7 @@ void Buffer::destroy(std::shared_ptr<VoxelrtIO> &voxellstio){
     m_pAlloc->destroy(*(instanceio->m_pBufferInstanceLink));
     m_pAlloc->destroy(*(voxelio->m_pVoxelLinkBuffer));
     m_pAlloc->destroy(*(voxelio->m_pVoxelNanoBuffer));
+    if (voxelio->m_pVoxelHexBuffer) m_pAlloc->destroy(*(voxelio->m_pVoxelHexBuffer));
 
     m_pAlloc->destroy(*(surfio->m_pBufferLad));
 

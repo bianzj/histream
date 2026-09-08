@@ -70,7 +70,7 @@ void Scattering_phase_function_diffuse()
             vec3 directionj = normalize(DIFFUSE_DIRECTIONS[jangle]);
             vec2 gamma = scattering_phase_function_direct_XZY_paper(directioni, -directionj);
             GammaR[iangle * DIFFUSE_ANGLE_NUM + jangle] = gamma.x;
-            GammaR[iangle * DIFFUSE_ANGLE_NUM + jangle] = gamma.y;
+            GammaT[iangle * DIFFUSE_ANGLE_NUM + jangle] = gamma.y;
         }
     }
 }
@@ -193,15 +193,9 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
 
 
               G = canopies[canopyId].G;
-              // density determined by mesh/isntance or pixel scale?
-              if(setting.islad < 1){
-                  density = canopies[canopyId].density;
-              }else{         
-                  uint surf1DId = SurfFlatten(voxelId, voxelRes);
-                  density = lads[surf1DId]; 
-              }
+              density = ResolveTurbidDensity(bufferId, canopyId, voxelId, voxelRes);
               float pathLength = Vector2Distance(sstate.position - sstate.lastPosition);
-              alpha_voxel = exp(-density * G * pathLength * scale);
+              alpha_voxel = canopyVoxelTransmittance(canopies[canopyId], density, G, pathLength, scale);
               alpha_toSolar = voxelDirs[bufferId].solar;
 
             // get the phase function for solar direction to induced direction 
@@ -293,8 +287,8 @@ bool voxel_raytracing_diffuse(vec3 voxelPos0, uint bufferId0, NanoVDBLink nanoVD
         vec3 ffnormal = sstate.normal;
         bool inSameSides = IsSameSide(wo,wi,ffnormal);
         // THERMAL
-        sunlitTemperature = thermalMaterials[alignBufferId].sunlitTemperature;
-        shadedTemperature = thermalMaterials[alignBufferId].shadedTemperature;
+            sunlitTemperature = thermalMaterials[thermalId].sunlitTemperature;
+            shadedTemperature = thermalMaterials[thermalId].shadedTemperature;
         float radiance=0;
           wavelength = wave[kwave];
           sunlitRadiance = Planck(wavelength,sunlitTemperature);
@@ -378,6 +372,12 @@ void main()
   uint spectralId = meshLinks[meshId].spectralId;
   uint n_wave = setting.n_wave;
   uint spectralIdBase = spectralId * n_wave;
+  int bandCount = min(setting.n_wave, MAXBAND);
+  float diffuseRadiance[MAXBAND];
+  for (int kwave = 0; kwave < MAXBAND; ++kwave)
+  {
+      diffuseRadiance[kwave] = 0.0;
+  }
 
 
 
@@ -410,16 +410,15 @@ void main()
   if(setting.maxIteration > 1)
   {
       float Esky,Esun,wavelength;               // shortwave
-      for(int kwave = 0; kwave <setting.n_wave; kwave++)
+      for(int kwave = 0; kwave < bandCount; kwave++)
       {
 
           wavelength = wave[kwave];
-          float Esun = 0, Esky = 0;
-          float temp=0;
-          Esun = lightSet.direct;
-          Esky = lightSet.diffuse;
+          float Esun = lightSet.direct;
+          float Esky = lightSet.diffuse;
           if(wavelength > 5000){
-            Esun = Planck(wavelength,lightSet.solarTemperature);
+            // Longwave illumination comes from the thermal sky, not the sun.
+            Esun = 0.0;
             Esky = Planck(wavelength,lightSet.skyTemperature);
           }
 
@@ -437,40 +436,39 @@ void main()
           }// for iteration
 
     
-          float rads = 0, radtemp = 0, absorb = 1.0;
-          // iteration in diffuse
-          int effeNum = 1;
+          float rads = 0.0;
+          int effectiveDirectionCount = 0;
           for(int iangle = 0; iangle < DIFFUSE_ANGLE_NUM; iangle++)
           {
-              uint loc = bufferId0*DIFFUSE_ANGLE_NUM+iangle;
-              radtemp = voxelRads[loc].cumulated;
-              if(radtemp>0.05)
+              uint loc = bufferId0 * DIFFUSE_ANGLE_NUM + iangle;
+              float directionalRadiance = voxelRads[loc].cumulated;
+              if(directionalRadiance > 0.0)
               {
-                  effeNum = effeNum + 1;
-                  rads = rads + radtemp;
+                  effectiveDirectionCount += 1;
+                  rads += directionalRadiance;
               }
           }
-          if (effeNum < 1) effeNum=1;
-          //-------------------------------------------------------
-          // for twince receive and twince emit, but it not work
-          // using effeNum replace this function
-          //--------------------------------------------------------
-          if (typeId0 == TYPE_SOIL || typeId0 == TYPE_BUILDING)
+          if(effectiveDirectionCount > 0)
           {
-              rads = rads/effeNum;
+              rads /= float(effectiveDirectionCount);
           }
-          else
-          {rads = rads/effeNum;}
 
-          absorb = 1 - spectralMaterials[spectralIdBase + kwave].transmittance -
-                  spectralMaterials[spectralIdBase + kwave].reflectance;
-          rads = rads * absorb;
-  
-          // radSum = 100;
-        
-          atomicAdd(voxelNetRads[bufferId0].diffuseTrad, rads, gl_ScopeDevice,gl_StorageSemanticsBuffer,gl_SemanticsRelaxed);
+          // Preserve incoming spectral radiance; material absorption is applied
+          // by the image pass.
+          diffuseRadiance[kwave] = rads;
       }
-// atomicStore(voxelNetRads[bufferId0].directVrad, radSum, gl_ScopeDevice,gl_StorageSemanticsBuffer,gl_SemanticsRelaxed);
+
+      // Keep one environment value per wavelength in the existing directional
+      // buffer for the image pass.
+      for(int kwave = 0; kwave < bandCount; ++kwave)
+      {
+          uint bandIndex = bufferId0 * DIFFUSE_ANGLE_NUM + uint(kwave);
+          voxelRads[bandIndex].cumulated = diffuseRadiance[kwave];
+      }
+      if(bandCount > 0)
+      {
+          voxelNetRads[bufferId0].diffuseTrad = diffuseRadiance[0];
+      }
     }
 }
 

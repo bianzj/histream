@@ -122,15 +122,9 @@ bool TraversalDirection(vec3 lightDirection)
             canopyId = meshLinks[meshId].canopyId;
             if(abs(float(typeId - TYPE_VEGETATION))<0.1){
                 G = canopies[canopyId].G;
-                // density determined by mesh/isntance or pixel scale?
-                if(setting.islad < 1){
-                    density = canopies[canopyId].density;
-                }else{         
-                    uint surf1DId = SurfFlatten(voxelId, voxelRes);
-                    density = lads[surf1DId]; 
-                }
+                density = ResolveTurbidDensity(bufferId, canopyId, voxelId, voxelRes);
                 float pathLength = Vector2Distance(sstate.position - sstate.lastPosition);
-                 alpha_voxel = exp(-density * G * pathLength * scale);
+                 alpha_voxel = canopyVoxelTransmittance(canopies[canopyId], density, G, pathLength, scale);
             }   
         }
         //--------------------------------

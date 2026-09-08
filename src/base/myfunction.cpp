@@ -3,6 +3,18 @@
 //
 #include "myFunction.h"
 
+// Linux 兼容: MSVC 的 C11 Annex K 安全函数在 glibc 中不存在,
+// 用标准库等价实现 (缓冲区大小均由调用方 new 保证)
+#ifndef _WIN32
+#include <cstring>
+namespace {
+inline void strcpy_s(char* dst, std::size_t, const char* src) { std::strcpy(dst, src); }
+inline char* strtok_s(char* str, const char* delim, char** /*context*/) {
+    return str ? std::strtok(str, delim) : std::strtok(nullptr, delim);
+}
+}
+#endif
+
 //bool myFunction::sensorNameExist(std::vector<SensorStruct> sensorDatasets, std::string name)
 //{
 //    for (auto data : sensorDatasets)

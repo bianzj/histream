@@ -87,6 +87,8 @@ enum Mode {
     eVoxelRT,
     eFacetRT,
     eFacetEB,
+    eHexRT,  // 异质性体元 (hex voxel) 辐射管线 —— 面元投影聚集指数 + 体密度
+    eHexEB,  // 异质性体元 (hex voxel) 能量平衡管线
 };
 
 enum RaytracingStageIndices

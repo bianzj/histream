@@ -10,10 +10,14 @@
 #include "src/voxeleb/voxeleb.h"
 #include "src/voxeleb/voxelebio.h"
 #include "src/voxelrt/voxelrt.h"
+#include "src/hexrt/hexrt.h"
+#include "src/hexeb/hexeb.h"
 #include "src/base/appsetting.h"
 #include "src/base/fileio.h"
+#ifdef HISTREAM_ENABLE_FACET
 #include "../facetrt/facetrt.h"
 #include "../faceteb/faceteb.h"
+#endif
 
 #include <filesystem>
 #include <utility>
@@ -45,10 +49,16 @@ private:
     std::shared_ptr<VoxelebIO>  m_pVoxelebio;
     std::shared_ptr<Voxelrt>    m_pVoxelrt;
     std::shared_ptr<VoxelrtIO>  m_pVoxelrtio;
+#ifdef HISTREAM_ENABLE_FACET
     std::shared_ptr<Facetrt>    m_pFacetrt;
     std::shared_ptr<FacetrtIO>  m_pFacetrtio;
     std::shared_ptr<Faceteb>    m_pFaceteb;
     std::shared_ptr<FacetebIO>  m_pFacetebio;
+#endif
+    std::shared_ptr<Hexrt>      m_pHexrt;
+    std::shared_ptr<HexrtIO>    m_pHexrtio;
+    std::shared_ptr<Hexeb>      m_pHexeb;
+    std::shared_ptr<HexebIO>    m_pHexebio;
 
 };
 

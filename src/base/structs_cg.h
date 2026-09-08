@@ -141,6 +141,12 @@ struct Canopy
     float LIDFb;  // For dynamic G
     float hspot;      // for the hotspot
     float leafwidth; // for the aerodynamic resistance
+    int structureType{0}; // 0: canopy, 1: rigid, 2: fire, 3: fog
+    float extinction{0.0f};
+    float scatteringAlbedo{0.0f};
+    float asymmetry{0.0f};
+    float emissionScale{0.0f};
+    float fixedTemperature{0.0f};
 };
 
 
@@ -189,7 +195,8 @@ struct MeshLink
 };
 
 // voxel link
-struct VoxelLink
+// std430 中该结构的数组步长为 48B；显式对齐确保 CPU/GPU 使用相同步长。
+struct alignas(16) VoxelLink
 {
     glm::ivec3 voxelId{0, 0, 0};
     int instanceId{0};
@@ -198,7 +205,22 @@ struct VoxelLink
     int isValid{0}; // is 0 go pass
     int empty_{0};// which faces ? 0 center 1, up, 2 bottom, 3 left, 4 right, 5, forward, 6 backward
     // now only 0 and 1 was used for the veg and soil, respectively;
+    int hexId{-1}; // 异质性体元参数索引 (hex voxel), -1 表示无 (退化为均匀体元)
 };
+
+// 混浊介质参数: 三个正交方向的聚集指数 CI + 体密度 rho。
+// Voxel 模式忽略 ax/ay/az（等价于 CIx=CIy=CIz=1），Hex 模式使用三轴 CI。
+// 与 shader/parameters.h 中的 GLSL VoxelHex 一一对应 (16 字节)
+struct VoxelHex
+{
+    float ax{1.0f};  // CIx
+    float ay{1.0f};  // CIy
+    float az{1.0f};  // CIz
+    float rho{0.0f}; // 仅混浊介质有效
+};
+
+static_assert(sizeof(VoxelLink) == 48, "VoxelLink must match GLSL std430 stride");
+static_assert(sizeof(VoxelHex) == 16, "VoxelHex must match GLSL std430 stride");
 
 
 struct VoxelDir

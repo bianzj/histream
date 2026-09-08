@@ -38,6 +38,7 @@ bool Descriptor::createDescriptor(std::shared_ptr<VoxelrtIO> &modelio){
     bindings.addBinding(VoxelrtbindingInd::netRad, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
     bindings.addBinding(VoxelrtbindingInd::storage, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags );
     bindings.addBinding(VoxelrtbindingInd::lad, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
+    bindings.addBinding(VoxelrtbindingInd::medium, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, flags);
 
 
     m_descSetLayout = bindings.createLayout(m_device);
@@ -110,6 +111,9 @@ bool Descriptor::createDescriptor(std::shared_ptr<VoxelrtIO> &modelio){
 
     VkDescriptorBufferInfo dbiLad{surfio->m_pBufferLad->buffer, 0, VK_WHOLE_SIZE};
     updates.emplace_back(bindings.makeWrite(m_descSet, VoxelrtbindingInd::lad, &dbiLad));
+
+    VkDescriptorBufferInfo dbiMedium{voxelio->m_pVoxelHexBuffer->buffer, 0, VK_WHOLE_SIZE};
+    updates.emplace_back(bindings.makeWrite(m_descSet, VoxelrtbindingInd::medium, &dbiMedium));
 
     vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(updates.size()), updates.data(), 0, nullptr);
     return true;

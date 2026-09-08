@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Information>
+  <Control>
+    <rayTracingDepth>6</rayTracingDepth><isTemperature>0</isTemperature>
+    <isAlbedo>0</isAlbedo><isImage>1</isImage><isDisplay>0</isDisplay>
+    <GPU>0</GPU><outDir>C:/work/histream/examples/obj_tree_compare/results/size_sweep/2p50m/voxel</outDir>
+  </Control>
+  <Geometry>
+    <Sensor><sensor id="1" name="tree_compare">
+      <pixelResolutionX>96</pixelResolutionX><pixelResolutionY>96</pixelResolutionY>
+      <bandNum>1</bandNum><controlBand>850</controlBand>
+      <viewAngle>
+        <viewAngle type="custom" num="2">
+          <viewAngles id="1">0,0</viewAngles><viewAngles id="2">50,0</viewAngles>
+        </viewAngle>
+        <viewAngle type="BRF"><SPP>0</SPP><CSPP>0</CSPP><vzaMax>50</vzaMax><vzaStep>10</vzaStep></viewAngle>
+        <viewAngle type="albedo"><enabled>0</enabled><angleNum>100</angleNum></viewAngle>
+      </viewAngle>
+    </sensor></Sensor>
+    <Light><light id="1" name="sun">
+      <lightAngle num="1"><lightAngle id="1">30,135</lightAngle></lightAngle>
+      <directScatteringRatio>0.8</directScatteringRatio><skyTemperature>250</skyTemperature>
+    </light></Light>
+  </Geometry>
+  <Attribute>
+    <Spectral>
+      <spectral type="custom" id="1" name="leaf">
+        <reflectance>0.45</reflectance><transmittance>0.35</transmittance>
+        <tau_TIR>0.01</tau_TIR><ref_TIR>0.01</ref_TIR>
+      </spectral>
+      <spectral type="custom" id="2" name="soil">
+        <reflectance>0.24</reflectance><transmittance>0.0</transmittance>
+        <tau_TIR>0.0</tau_TIR><ref_TIR>0.05</ref_TIR>
+      </spectral>
+    </Spectral>
+    <Thermal>
+      <thermal id="1" name="leaf_temperature"><sunlitTemperature>300</sunlitTemperature><shadedTemperature>298</shadedTemperature></thermal>
+      <thermal id="2" name="soil_temperature"><sunlitTemperature>305</sunlitTemperature><shadedTemperature>295</shadedTemperature></thermal>
+    </Thermal>
+    <Canopy><canopy id="1" name="tree_canopy">
+      <lai>2.0</lai><density>0.5</density><hc>5.7</hc><G>0.5</G>
+      <LIDFa>-0.35</LIDFa><LIDFb>-0.15</LIDFb><hspot>0.2</hspot><leafwidth>0.22</leafwidth>
+    </canopy></Canopy>
+    <Biochemistry>
+      <LeafBio><leafBio id="1" name="leafbio">
+        <Vcmax>60</Vcmax><m>9</m><BallBerry>0.01</BallBerry><Type>3</Type>
+        <kV>0.6396</kV><Rdparam>0.015</Rdparam><Tparam>0.2,0.3,288,313,328</Tparam>
+        <Tyear>25</Tyear><beta>0.507</beta><kNPQs>0</kNPQs><qLs>1</qLs>
+        <stressfactor>1</stressfactor><Tcor>0</Tcor>
+      </leafBio></LeafBio>
+      <SoilSet><soilSet id="1" name="soilset">
+        <method>1</method><rss>2000</rss><cs>1180</cs><rhos>1800</rhos>
+        <lambdas>1.55</lambdas><Tsoil>25</Tsoil><SMC>0.25</SMC><Satwater>0.45</Satwater>
+      </soilSet></SoilSet>
+    </Biochemistry>
+  </Attribute>
+  <Scene>
+    <sceneSizeX>30.0</sceneSizeX><sceneSizeY>30.0</sceneSizeY>
+    <Height>8.0</Height><voxelSize>2.5</voxelSize>
+    <voxelFillThreshold>0.0</voxelFillThreshold>
+    <bgSpectral>soil</bgSpectral><bgThermal>soil_temperature</bgThermal>
+    <bgBioName>soilset</bgBioName><bgBioType>soilSet</bgBioType>
+    <Object type="face"><object id="1" objName="multi_tree">
+      <fileName>C:/work/histream/examples/obj_tree_compare/multi_tree.obj</fileName><meshNames>Crown</meshNames>
+      <spectralNames>leaf</spectralNames><thermalNames>leaf_temperature</thermalNames>
+      <canopyNames>tree_canopy</canopyNames><bioNames>leafbio</bioNames><bioTypes>leafBio</bioTypes>
+      <types>Vegetation</types><shapeTypes>ellipsoid</shapeTypes><shapes>3.0,3.0,5.0</shapes>
+      <objectPosition>C:/work/histream/examples/obj_tree_compare/object_position.txt</objectPosition>
+    </object></Object>
+  </Scene>
+</Information>

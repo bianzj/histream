@@ -51,7 +51,36 @@ struct Canopy
 	float LIDFb;
 	float hspot;
 	float leafwidth;
+	int structureType; // 0: canopy, 1: rigid, 2: fire, 3: fog
+	float extinction;
+	float scatteringAlbedo;
+	float asymmetry;
+	float emissionScale;
+	float fixedTemperature;
 };
+
+bool isParticipatingMedium(Canopy canopy)
+{
+	return canopy.structureType == 2 || canopy.structureType == 3;
+}
+
+float canopyVoxelTransmittance(Canopy canopy, float density, float G,
+                               float pathLength, float scale)
+{
+	if(canopy.structureType == 1) return 0.0;
+	if(isParticipatingMedium(canopy)) pathLength = clamp(pathLength, 0.0, 1.7320508);
+	float opticalDepth = isParticipatingMedium(canopy)
+		? max(canopy.extinction, 0.0) * pathLength * scale
+		: max(density, 0.0) * max(G, 0.0) * pathLength * scale;
+	return exp(-opticalDepth);
+}
+
+float mediumPhaseHG(Canopy canopy, float cosTheta)
+{
+	float g = clamp(canopy.asymmetry, -0.99, 0.99);
+	float denominator = max(1.0 + g * g - 2.0 * g * clamp(cosTheta, -1.0, 1.0), 0.000001);
+	return (1.0 - g * g) / (12.5663706144 * pow(denominator, 1.5));
+}
 
 // sphere instance defination
 struct Sphere
@@ -136,7 +165,7 @@ struct InstanceLink
 };
 
 
-// voxel link
+// voxel link（std430 数组步长 48B，与 C++ alignas(16) 对齐）
 struct VoxelLink
 {
     ivec3 voxelId;
@@ -145,6 +174,17 @@ struct VoxelLink
 	int faceId;
 	int isValid;
 	int empty_;
+	int hexId;
+};
+
+// 混浊介质参数：正交方向聚集指数 CI + 体密度 rho (16B)。
+// Voxel 模式忽略 ax/ay/az，Hex 模式使用三轴 CI。
+struct VoxelHex
+{
+    float ax;
+    float ay;
+    float az;
+    float rho;
 };
 
 // transmittance
