@@ -59,6 +59,7 @@ void main()
     uint spectralId = meshLinks[meshId].spectralId;
     uint spectralIdBase = spectralId * NUM_BAND;
     uint canopyId = meshLinks[meshId].canopyId;
+    Canopy canopy = canopies[canopyId];
     voxelNetRads[bufferId0].directVrad = 0.0;
 
     //---------------------------------------------------
@@ -76,6 +77,12 @@ void main()
         // absorb = 1- refl - trans
         float absorb = 1 - spectralMaterials[spectralIdBase + kband].transmittance - 
                 spectralMaterials[spectralIdBase + kband].reflectance;
+        if(isParticipatingMedium(canopy)) {
+            float voxelTransmittance = canopyVoxelTransmittance(
+                canopy, 0.0, 0.0, 1.0, setting.scale);
+            absorb = (1.0 - voxelTransmittance)
+                * (1.0 - clamp(canopy.scatteringAlbedo, 0.0, 1.0));
+        }
         //---------------------------------
         // Attention: there is no alpha_solar
         //---------------------------------
@@ -84,7 +91,7 @@ void main()
         // rad = atomConds[kband].direct * 0.001;
         // rad = spectralMaterials[spectralIdBase + kband].reflectance;
         // vegetation projection correction;
-        if(typeId == TYPE_VEGETATION){
+        if(typeId == TYPE_VEGETATION && !isParticipatingMedium(canopy)){
             if (cosSolar > 0.05){ //
                 rad = rad / cosSolar;
             }
@@ -103,8 +110,9 @@ void main()
             // absorb = a;
             rad = rad * 0.5;
         }
-
-
+        if(isParticipatingMedium(canopy)) {
+            rad = rad / max(cosSolar, 0.05) * alpha_toSolar;
+        }
         rad = rad * absorb;
         // rad = cosSolar;
         // save direct VNIR radiance

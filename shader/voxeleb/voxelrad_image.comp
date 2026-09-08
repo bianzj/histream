@@ -184,6 +184,22 @@ bool Voxel_raytracing(Ray ray, NanoVDBLink nanoVDBLink)
 				if(alpha_toSensor < 0.001) {
                     return validHit && LST > 0.0;
                 }
+
+				if(isParticipatingMedium(canopy))
+				{
+					float removedFraction = 1.0 - alpha_voxel;
+					float scatteringFraction = removedFraction
+						* clamp(canopy.scatteringAlbedo, 0.0, 1.0);
+					float absorptionFraction = removedFraction - scatteringFraction;
+					float mediumTemperature = canopy.fixedTemperature > 0.0
+						? canopy.fixedTemperature : ValidTemperature(ubom.meteo.Ta);
+					LST += alpha_toSensor * absorptionFraction
+						* canopy.emissionScale * Planck(wavelength, mediumTemperature);
+					LST += alpha_toSensor * scatteringFraction
+						* Planck(wavelength, envTemp);
+					alpha_toSensor *= alpha_voxel;
+					continue;
+				}
 				// this is used for the hotspot effect
 				if(alpha_toSolar < 0.0001) pl_toSolar = 10000.0;
 				else pl_toSolar = -log(alpha_toSolar) / G / DENSITY;
